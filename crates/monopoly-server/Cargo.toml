@@ -1,0 +1,23 @@
+[package]
+name = "monopoly-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+monopoly-common = { path = "../monopoly-common" }
+monopoly-core = { path = "../monopoly-core" }
+axum.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+rand.workspace = true
+futures-util.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+tokio-tungstenite = "0.29"
+url = "2"

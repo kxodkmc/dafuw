@@ -1,0 +1,9 @@
+[package]
+name = "monopoly-persistence"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+monopoly-common = { path = "../monopoly-common" }
+uuid.workspace = true

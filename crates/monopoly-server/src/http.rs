@@ -1,0 +1,179 @@
+//! REST 处理器：房间生命周期管理。
+
+use axum::extract::{Path, State};
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use axum::Json;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+use monopoly_common::error::ApiError as CommonError;
+use monopoly_common::event::Event;
+use monopoly_common::room::{RoomCode, RoomSettings};
+use monopoly_common::snapshot::GameStateDto;
+
+use crate::app::AppState;
+use crate::error::{ApiError, ApiResult};
+
+#[derive(Debug, Deserialize)]
+pub struct CreateRoomReq {
+    #[serde(default)]
+    pub settings: Option<RoomSettings>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateRoomRes {
+    pub room_code: u32,
+    pub owner_token: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct JoinReq {
+    pub name: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct JoinRes {
+    pub player_id: Uuid,
+    pub player_token: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OwnerReq {
+    pub owner_token: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct StartRes {
+    pub ok: bool,
+}
+
+/// 就绪检查项。
+#[derive(Debug, Serialize)]
+pub struct Check {
+    pub name: &'static str,
+    pub ok: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HealthRes {
+    /// ready / not_ready。
+    pub status: &'static str,
+    pub service: &'static str,
+    pub version: &'static str,
+    pub uptime_secs: u64,
+    pub rooms: usize,
+    pub checks: Vec<Check>,
+}
+
+/// 创建房间：本地/云端同入口，返回 8 位房号与房主令牌。
+pub async fn create_room(
+    State(state): State<AppState>,
+    Json(req): Json<CreateRoomReq>,
+) -> ApiResult<Json<CreateRoomRes>> {
+    let settings = req.settings.unwrap_or_default();
+    settings.validate().map_err(CommonError::BadRequest)?;
+    let (room_code, owner_token) = state.manager.create(settings)?;
+    Ok(Json(CreateRoomRes {
+        room_code: room_code.as_u32(),
+        owner_token,
+    }))
+}
+
+/// 加入房间（入座）：返回玩家 ID 与玩家令牌。
+pub async fn join_room(
+    State(state): State<AppState>,
+    Path(code): Path<RoomCode>,
+    Json(req): Json<JoinReq>,
+) -> ApiResult<Json<JoinRes>> {
+    let name = req.name.trim().to_string();
+    if name.is_empty() {
+        return Err(ApiError::bad_request("昵称不能为空"));
+    }
+    if name.chars().count() > 16 {
+        return Err(ApiError::bad_request("昵称过长（最多 16 字符）"));
+    }
+    let handle = state
+        .manager
+        .get(code)
+        .ok_or_else(|| ApiError::not_found("房间"))?;
+    let (player_id, player_token) = handle.request_join(&name).await?;
+    Ok(Json(JoinRes {
+        player_id,
+        player_token,
+    }))
+}
+
+/// 拉取房间快照（用于断线重连/观战）。
+pub async fn get_room(
+    State(state): State<AppState>,
+    Path(code): Path<RoomCode>,
+) -> ApiResult<Json<GameStateDto>> {
+    let handle = state
+        .manager
+        .get(code)
+        .ok_or_else(|| ApiError::not_found("房间"))?;
+    let snap = handle.query_snapshot().await?;
+    Ok(Json(snap))
+}
+
+/// 房主开局。
+pub async fn start_game(
+    State(state): State<AppState>,
+    Path(code): Path<RoomCode>,
+    Json(req): Json<OwnerReq>,
+) -> ApiResult<Json<StartRes>> {
+    let handle = state
+        .manager
+        .get(code)
+        .ok_or_else(|| ApiError::not_found("房间"))?;
+    if req.owner_token != handle.owner_token {
+        return Err(ApiError::forbidden("仅房主可以开局"));
+    }
+    handle.start().await?;
+    Ok(Json(StartRes { ok: true }))
+}
+
+/// 房主解散房间。
+pub async fn delete_room(
+    State(state): State<AppState>,
+    Path(code): Path<RoomCode>,
+    Json(req): Json<OwnerReq>,
+) -> ApiResult<StatusCode> {
+    let handle = state
+        .manager
+        .get(code)
+        .ok_or_else(|| ApiError::not_found("房间"))?;
+    if req.owner_token != handle.owner_token {
+        return Err(ApiError::forbidden("仅房主可以解散房间"));
+    }
+    let _ = handle.broadcast.send(Event::RoomClosed);
+    state.manager.remove(code);
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// 就绪探针：一切依赖就绪时返回 200，否则返回 503。
+/// 供负载均衡 / nginx / 编排系统探测；后续接入 SQLite 后在 `readiness_checks` 中追加数据库检查。
+pub async fn health(State(state): State<AppState>) -> Response {
+    let checks = readiness_checks();
+    let ready = checks.iter().all(|c| c.ok);
+    let body = HealthRes {
+        status: if ready { "ready" } else { "not_ready" },
+        service: "monopoly-server",
+        version: env!("CARGO_PKG_VERSION"),
+        uptime_secs: state.started_at.elapsed().as_secs(),
+        rooms: state.manager.room_count(),
+        checks,
+    };
+    let status = if ready {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    (status, Json(body)).into_response()
+}
+
+/// 外部依赖就绪检查；当前无外部依赖，SQLite 接入后在此追加 `database` 检查。
+fn readiness_checks() -> Vec<Check> {
+    vec![]
+}
