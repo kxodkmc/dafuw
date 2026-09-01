@@ -13,6 +13,7 @@ use monopoly_common::event::Event;
 use monopoly_common::room::{RoomCode, RoomSettings, RoomSummary};
 use monopoly_common::snapshot::GameStateDto;
 
+use crate::actor::JoinResult;
 use crate::app::AppState;
 use crate::error::{ApiError, ApiResult};
 
@@ -32,18 +33,18 @@ pub struct CreateRoomRes {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct JoinReq {
-    pub name: String,
-    /// 自选形象（狗/轿车/单车/大树/床）。
-    pub avatar: Avatar,
-    /// 自选颜色（红/黄/绿/蓝/粉）。
-    pub color: Color,
-}
+pub struct JoinReq {}
 
 #[derive(Debug, Serialize)]
 pub struct JoinRes {
     pub player_id: Uuid,
     pub player_token: String,
+    /// 系统随机分配的昵称。
+    pub name: String,
+    /// 系统随机分配的形象。
+    pub avatar: Avatar,
+    /// 系统随机分配的颜色。
+    pub color: Color,
 }
 
 #[derive(Debug, Deserialize)]
@@ -109,33 +110,29 @@ pub async fn list_rooms(
     Ok(Json(out))
 }
 
-/// 加入房间（入座）：返回玩家 ID 与玩家令牌。
+/// 加入房间（入座）：系统随机分配昵称/形象/颜色，返回玩家 ID、令牌与分配结果。
 pub async fn join_room(
     State(state): State<AppState>,
     Path(code): Path<RoomCode>,
-    Json(req): Json<JoinReq>,
+    Json(_req): Json<JoinReq>,
 ) -> ApiResult<Json<JoinRes>> {
-    let name = req.name.trim().to_string();
-    if name.is_empty() {
-        return Err(ApiError::bad_request("昵称不能为空"));
-    }
-    if name.chars().count() > 16 {
-        return Err(ApiError::bad_request("昵称过长（最多 16 字符）"));
-    }
-    // 仅允许中文、字母与数字，拒绝空格/标点/符号/表情等特殊字符。
-    if !name.chars().all(|c| c.is_alphanumeric()) {
-        return Err(ApiError::bad_request("昵称只能包含中文、字母、数字"));
-    }
     let handle = state
         .manager
         .get(code)
         .ok_or_else(|| ApiError::not_found("房间"))?;
-    let (player_id, player_token) = handle
-        .request_join(&name, req.avatar, req.color)
-        .await?;
+    let JoinResult {
+        player_id,
+        token,
+        name,
+        avatar,
+        color,
+    } = handle.request_join().await?;
     Ok(Json(JoinRes {
         player_id,
-        player_token,
+        player_token: token,
+        name,
+        avatar,
+        color,
     }))
 }
 

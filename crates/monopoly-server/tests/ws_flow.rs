@@ -80,13 +80,14 @@ impl Server {
         )
     }
 
-    async fn join_room(&self, code: u32, name: &str, avatar: &str, color: &str) -> String {
-        let body = format!(r#"{{"name":"{name}","avatar":"{avatar}","color":"{color}"}}"#);
-        let (status, v) = self
-            .json("POST", &format!("/api/rooms/{code}/join"), Some(&body))
-            .await;
+    /// 入座（空请求体，系统分配身份），返回 (玩家令牌, 系统分配的昵称)。
+    async fn join_room(&self, code: u32) -> (String, String) {
+        let (status, v) = self.json("POST", &format!("/api/rooms/{code}/join"), Some("{}")).await;
         assert_eq!(status, StatusCode::OK, "入座失败: {v}");
-        v["player_token"].as_str().unwrap().to_string()
+        (
+            v["player_token"].as_str().unwrap().to_string(),
+            v["name"].as_str().unwrap().to_string(),
+        )
     }
 
     async fn ws(
@@ -144,8 +145,8 @@ async fn ws_rejects_invalid_token() {
 async fn ws_full_game_turn_flow() {
     let srv = spawn_server().await;
     let (code, owner) = srv.create_room(2).await;
-    let token_a = srv.join_room(code, "Alice", "dog", "red").await;
-    let token_b = srv.join_room(code, "Bob", "car", "yellow").await;
+    let (token_a, name_a) = srv.join_room(code).await;
+    let (token_b, name_b) = srv.join_room(code).await;
 
     let mut ws_a = srv.ws(code, &token_a).await.expect("Alice 连接失败");
     expect_event_until(&mut ws_a, |e| matches!(e, Event::RoomSnapshot(_)))
@@ -157,7 +158,14 @@ async fn ws_full_game_turn_flow() {
         .await
         .expect("连接即收到快照");
 
-    // 房主通过 WS 开局。
+    // 双方准备就绪。
+    send_cmd(&mut ws_a, &Command::SetReady { ready: true }).await;
+    send_cmd(&mut ws_b, &Command::SetReady { ready: true }).await;
+    expect_event_until(&mut ws_a, |e| matches!(e, Event::PlayerReady { ready: true, .. }))
+        .await
+        .expect("应广播就绪事件");
+
+    // 房主通过 WS 开局（全员就绪后成功）。
     let mut ws_owner = srv.ws(code, &owner).await.expect("房主连接失败");
     send_cmd(&mut ws_owner, &Command::StartGame).await;
 
@@ -186,10 +194,10 @@ async fn ws_full_game_turn_flow() {
         .find(|p| p.id == current)
         .map(|p| p.name.as_str())
         .unwrap_or("");
-    let cur_token = if current_name == "Alice" {
+    let cur_token = if current_name == name_a {
         token_a.clone()
     } else {
-        assert_eq!(current_name, "Bob");
+        assert_eq!(current_name, name_b);
         token_b.clone()
     };
 
@@ -226,8 +234,8 @@ async fn ws_rooms_are_isolated() {
     let srv = spawn_server().await;
     let (code1, _) = srv.create_room(2).await;
     let (code2, _) = srv.create_room(2).await;
-    let tok1 = srv.join_room(code1, "A", "dog", "red").await;
-    let tok2 = srv.join_room(code2, "A", "dog", "red").await;
+    let (tok1, _) = srv.join_room(code1).await;
+    let (tok2, _) = srv.join_room(code2).await;
 
     let mut ws1 = srv.ws(code1, &tok1).await.expect("房 1 连接失败");
     let _ = expect_event_until(&mut ws1, |e| matches!(e, Event::RoomSnapshot(_))).await;
@@ -251,13 +259,31 @@ async fn ws_rooms_are_isolated() {
 async fn ws_disconnected_player_is_autopiloted() {
     let srv = spawn_server().await;
     let (code, owner) = srv.create_room(2).await;
-    let token_a = srv.join_room(code, "Alice", "dog", "red").await;
-    let _token_b = srv.join_room(code, "Bob", "car", "yellow").await; // Bob 永不建连 → 托管
+    let (token_a, name_a) = srv.join_room(code).await;
+    let (token_b, name_b) = srv.join_room(code).await;
+
+    // 双方先建连并确认各自就绪事件（保证就绪已生效）。
+    let mut ws_b = srv.ws(code, &token_b).await.expect("Bob 连接失败");
+    let _ = expect_event_until(&mut ws_b, |e| matches!(e, Event::RoomSnapshot(_))).await;
+    send_cmd(&mut ws_b, &Command::SetReady { ready: true }).await;
+    expect_event_until(&mut ws_b, |e| matches!(e, Event::PlayerReady { ready: true, .. }))
+        .await
+        .expect("Bob 就绪应广播");
 
     let mut ws_a = srv.ws(code, &token_a).await.expect("Alice 连接失败");
     let _ = expect_event_until(&mut ws_a, |e| matches!(e, Event::RoomSnapshot(_))).await;
+    send_cmd(&mut ws_a, &Command::SetReady { ready: true }).await;
+    expect_event_until(&mut ws_a, |e| matches!(e, Event::PlayerReady { ready: true, .. }))
+        .await
+        .expect("Alice 就绪应广播");
 
-    // 房主开局：Alice 在线、Bob 离线。
+    // 此时 Alice 已订阅广播；Bob 断开 → 广播 PlayerLeft，Alice 必然收到。
+    drop(ws_b);
+    expect_event_until(&mut ws_a, |e| matches!(e, Event::PlayerLeft { .. }))
+        .await
+        .expect("应广播 Bob 离开事件");
+
+    // 房主开局：Alice 在线、Bob 离线（全员曾就绪）。
     let mut ws_owner = srv.ws(code, &owner).await.expect("房主连接失败");
     send_cmd(&mut ws_owner, &Command::StartGame).await;
 
@@ -286,10 +312,10 @@ async fn ws_disconnected_player_is_autopiloted() {
         let Event::RoomSnapshot(snap) = snap else {
             unreachable!()
         };
-        let Some(alice) = snap.players.iter().find(|p| p.name == "Alice") else {
+        let Some(alice) = snap.players.iter().find(|p| p.name == name_a) else {
             break;
         };
-        let Some(bob) = snap.players.iter().find(|p| p.name == "Bob") else {
+        let Some(bob) = snap.players.iter().find(|p| p.name == name_b) else {
             break;
         };
         if bob.position > 0 || bob.cash < 1500 {

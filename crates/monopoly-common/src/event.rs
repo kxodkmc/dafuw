@@ -44,6 +44,11 @@ pub enum Event {
     PlayerLeft {
         player_id: Uuid,
     },
+    /// 大厅中某位玩家标记/取消准备就绪。
+    PlayerReady {
+        player_id: Uuid,
+        ready: bool,
+    },
     GameStarted {
         first_player: Uuid,
     },

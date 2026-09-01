@@ -25,6 +25,8 @@ pub struct PlayerDto {
     pub avatar: Avatar,
     /// 自选颜色。
     pub color: Color,
+    /// 大厅中是否已准备就绪。
+    pub ready: bool,
     pub cash: i64,
     pub position: usize,
     pub in_jail: bool,

@@ -6,7 +6,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use monopoly_common::avatar::{Avatar, Color};
 use monopoly_common::command::Command;
 use monopoly_common::room::RoomSettings;
 use monopoly_persistence::{GameRepository, InMemoryRepository};
@@ -43,14 +42,25 @@ async fn restore_room_and_continue_with_same_tokens() {
     let (code, owner_token) = manager.create(settings).unwrap();
     let handle = manager.get(code).expect("房间应存在");
 
-    let (a_id, a_token) = handle
-        .request_join("Alice", Avatar::Dog, Color::Red)
+    let a = handle.request_join().await.unwrap();
+    let (a_id, a_token) = (a.player_id, a.token);
+    let b = handle.request_join().await.unwrap();
+    let b_token = b.token;
+    // 双方就绪后才能开局。
+    handle
+        .command(
+            handle.resolve_token(&a_token).expect("令牌应有效"),
+            Command::SetReady { ready: true },
+        )
         .await
-        .unwrap();
-    let (_b_id, b_token) = handle
-        .request_join("Bob", Avatar::Car, Color::Yellow)
+        .expect("设置就绪应成功");
+    handle
+        .command(
+            handle.resolve_token(&b_token).expect("令牌应有效"),
+            Command::SetReady { ready: true },
+        )
         .await
-        .unwrap();
+        .expect("设置就绪应成功");
     handle.start().await.expect("开局应成功");
     wait_saved(&repo, code.as_u32(), "playing").await;
 

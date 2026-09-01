@@ -4,7 +4,7 @@
 use crate::cards::Deck;
 use crate::engine::{GameEngine, Phase};
 use crate::rng::{RngSource, StdRngSource};
-use crate::tests::support::combo;
+use crate::tests::support::{combo, mark_all_ready};
 use monopoly_common::command::Command;
 use monopoly_common::room::RoomSettings;
 use rand::rngs::StdRng;
@@ -29,6 +29,7 @@ fn run_random_game(seed: u64, players: usize, max_rounds: u32) {
         .unwrap();
     }
     let mut rng = StdRngSource(StdRng::seed_from_u64(seed));
+    mark_all_ready(&mut e);
     e.start(&mut rng).unwrap();
 
     let mut steps = 0usize;

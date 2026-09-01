@@ -11,6 +11,8 @@ pub struct Player {
     pub avatar: Avatar,
     /// 自选颜色。
     pub color: Color,
+    /// 大厅中是否已准备就绪。
+    pub ready: bool,
     pub cash: i64,
     pub position: usize,
     pub in_jail: bool,
@@ -27,6 +29,7 @@ impl Player {
             name,
             avatar,
             color,
+            ready: false,
             cash,
             position: 0,
             in_jail: false,
@@ -43,6 +46,7 @@ impl Player {
             name: dto.name.clone(),
             avatar: dto.avatar,
             color: dto.color,
+            ready: dto.ready,
             cash: dto.cash,
             position: dto.position,
             in_jail: dto.in_jail,
