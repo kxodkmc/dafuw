@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 
 /// 8 位数字房间号（10000000..=99999999）。
-///
 /// 统一以 `u32` 存储，展示时按 8 位补零，保证协议与日志中格式一致。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RoomCode(u32);
@@ -33,6 +32,8 @@ impl std::fmt::Display for RoomCode {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct RoomSettings {
+    /// 房间名称（局域网发现/列表展示用，可为空）。
+    pub name: String,
     /// 房间人数上限（2..=8）。
     pub player_count_max: u8,
     /// 每位玩家初始资金。
@@ -50,6 +51,7 @@ pub struct RoomSettings {
 impl Default for RoomSettings {
     fn default() -> Self {
         Self {
+            name: String::new(),
             player_count_max: 8,
             initial_money: 1500,
             dice_count: 2,
@@ -63,6 +65,9 @@ impl Default for RoomSettings {
 impl RoomSettings {
     /// 开局前的参数校验，非法配置直接拒绝建房。
     pub fn validate(&self) -> Result<(), String> {
+        if self.name.chars().count() > 30 {
+            return Err("房间名过长（最多 30 字符）".to_string());
+        }
         if !(2..=8).contains(&self.player_count_max) {
             return Err("玩家人数需在 2..=8 之间".to_string());
         }
@@ -80,6 +85,20 @@ impl RoomSettings {
         }
         Ok(())
     }
+}
+
+/// 房间概要（局域网发现/列表用）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoomSummary {
+    pub code: u32,
+    /// 房间名称（可为空）。
+    pub name: String,
+    /// lobby / playing / ended。
+    pub status: String,
+    /// 已入座玩家数。
+    pub players: usize,
+    /// 房间人数上限。
+    pub player_count_max: u8,
 }
 
 #[cfg(test)]

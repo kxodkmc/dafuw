@@ -4,6 +4,7 @@
 //! `handle(player, command, rng) -> Vec<Event>`，配合 `snapshot()` 即可被任意上层复用
 //! （服务器 / 测试 / 未来的本地对战）。随机性通过 [`RngSource`] 注入，可复现可测试。
 
+mod archive;
 pub mod auction;
 pub mod board;
 pub mod cards;

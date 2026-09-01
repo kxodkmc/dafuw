@@ -12,10 +12,11 @@ use uuid::Uuid;
 
 use monopoly_common::command::Command;
 use monopoly_common::event::Event;
-use monopoly_common::room::RoomSettings;
+use monopoly_common::room::RoomCode;
 use monopoly_common::snapshot::GameStateDto;
 use monopoly_core::engine::{GameEngine, Phase};
 use monopoly_core::rng::StdRngSource;
+use monopoly_persistence::{GameRepository, StoredGame};
 
 /// 会话身份：玩家（持有玩家令牌）或房主（持有房主令牌）。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,14 +51,30 @@ pub enum ActorMsg {
 }
 
 /// 启动房间 Actor 任务。
+///
+/// `engine` 可为新建大厅引擎或由存档恢复的引擎；`repo` 为 `Some` 时
+/// 每次状态变更后自动落盘，`Shutdown` 时删除该房间记录。
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_actor(
-    settings: RoomSettings,
+    code: RoomCode,
+    owner_token: String,
+    engine: GameEngine,
     rx: mpsc::Receiver<ActorMsg>,
     tx: broadcast::Sender<Event>,
     player_tokens: Arc<RwLock<HashMap<String, Uuid>>>,
+    repo: Option<Arc<dyn GameRepository>>,
 ) {
     tokio::spawn(async move {
-        let mut actor = RoomActor::new(settings, tx, player_tokens);
+        let mut actor = RoomActor {
+            engine,
+            tx,
+            player_tokens,
+            code,
+            owner_token,
+            repo,
+            connected: HashMap::new(),
+            rng: StdRngSource::from_os_rng(),
+        };
         actor.run(rx).await;
     });
 }
@@ -66,6 +83,11 @@ struct RoomActor {
     engine: GameEngine,
     tx: broadcast::Sender<Event>,
     player_tokens: Arc<RwLock<HashMap<String, Uuid>>>,
+    /// 房间号与房主令牌：持久化与恢复所需。
+    code: RoomCode,
+    owner_token: String,
+    /// 持久化仓库；`None` 表示不落盘（测试/演示）。
+    repo: Option<Arc<dyn GameRepository>>,
     /// 玩家当前活跃连接数；无连接即视为「托管」。
     connected: HashMap<Uuid, usize>,
     /// 房间内持久随机源，保证对局可复现、可测试。
@@ -73,29 +95,20 @@ struct RoomActor {
 }
 
 impl RoomActor {
-    fn new(
-        settings: RoomSettings,
-        tx: broadcast::Sender<Event>,
-        player_tokens: Arc<RwLock<HashMap<String, Uuid>>>,
-    ) -> Self {
-        Self {
-            engine: GameEngine::new(settings).expect("房间配置必须合法"),
-            tx,
-            player_tokens,
-            connected: HashMap::new(),
-            rng: StdRngSource::from_os_rng(),
-        }
-    }
-
     async fn run(&mut self, mut rx: mpsc::Receiver<ActorMsg>) {
         while let Some(msg) = rx.recv().await {
             match msg {
-                ActorMsg::Command { session, cmd } => self.command(session, cmd),
+                ActorMsg::Command { session, cmd } => {
+                    self.command(session, cmd);
+                    self.persist().await;
+                }
                 ActorMsg::Join { name, reply } => {
                     let _ = reply.send(self.join(name));
+                    self.persist().await;
                 }
                 ActorMsg::Start { reply } => {
                     let _ = reply.send(self.start_game());
+                    self.persist().await;
                 }
                 ActorMsg::Query { reply } => {
                     let _ = reply.send(self.engine.snapshot());
@@ -110,8 +123,53 @@ impl RoomActor {
                     // 若断线者正轮到其行动，立即接管为托管，避免对局卡住。
                     self.auto_drive();
                 }
-                ActorMsg::Shutdown => break,
+                ActorMsg::Shutdown => {
+                    self.delete_record().await;
+                    break;
+                }
             }
+        }
+    }
+
+    // ---------- 持久化 ----------
+
+    /// 将当前对局存档落盘（经 `spawn_blocking`，不阻塞异步运行时）。
+    async fn persist(&self) {
+        let Some(repo) = &self.repo else {
+            return;
+        };
+        let stored = self.stored_game();
+        let repo = repo.clone();
+        let code = self.code;
+        match tokio::task::spawn_blocking(move || repo.save_game(&stored)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => tracing::warn!("保存对局 {code} 失败: {e}"),
+            Err(e) => tracing::warn!("保存对局 {code} 任务异常: {e}"),
+        }
+    }
+
+    /// 房间解散时删除持久化记录。
+    async fn delete_record(&self) {
+        let Some(repo) = &self.repo else {
+            return;
+        };
+        let repo = repo.clone();
+        let code = self.code;
+        let _ = tokio::task::spawn_blocking(move || repo.delete_game(code)).await;
+    }
+
+    /// 组装当前对局的持久化记录。
+    fn stored_game(&self) -> StoredGame {
+        let tokens = self
+            .player_tokens
+            .read()
+            .map(|g| g.iter().map(|(k, v)| (k.clone(), *v)).collect())
+            .unwrap_or_default();
+        StoredGame {
+            code: self.code,
+            owner_token: self.owner_token.clone(),
+            player_tokens: tokens,
+            archive: self.engine.archive(),
         }
     }
 
@@ -285,6 +343,7 @@ impl RoomActor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use monopoly_common::room::RoomSettings;
     use rand::rngs::StdRng;
     use rand::SeedableRng;
 
@@ -300,6 +359,9 @@ mod tests {
             engine: GameEngine::new(settings).expect("配置必须合法"),
             tx: tx.clone(),
             player_tokens: tokens,
+            code: RoomCode::new(12_345_678).unwrap(),
+            owner_token: "owner-token".to_string(),
+            repo: None,
             connected: HashMap::new(),
             rng: StdRngSource(StdRng::seed_from_u64(7)),
         };
