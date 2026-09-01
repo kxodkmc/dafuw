@@ -1,3 +1,4 @@
+use monopoly_common::archive::AuctionDto;
 use uuid::Uuid;
 
 /// 银行拍卖状态机。
@@ -99,5 +100,29 @@ impl Auction {
     /// 当前应出价/弃权的玩家（用于服务器托管自动处理）。
     pub fn current_bidder(&self) -> Option<Uuid> {
         self.current()
+    }
+
+    /// 导出拍卖中间状态（对局存档用）。
+    pub(crate) fn to_dto(&self) -> AuctionDto {
+        AuctionDto {
+            tile_id: self.tile_id,
+            order: self.order.clone(),
+            turn: self.turn,
+            highest_bid: self.highest_bid,
+            highest_bidder: self.highest_bidder,
+            passed: self.passed.clone(),
+        }
+    }
+
+    /// 从 DTO 恢复拍卖中间状态（对局恢复用）。
+    pub(crate) fn restore(dto: &AuctionDto) -> Self {
+        Self {
+            tile_id: dto.tile_id,
+            order: dto.order.clone(),
+            turn: dto.turn,
+            highest_bid: dto.highest_bid,
+            highest_bidder: dto.highest_bidder,
+            passed: dto.passed.clone(),
+        }
     }
 }

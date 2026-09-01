@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// 地块快照。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TileDto {
     pub id: usize,
     pub name: String,
@@ -15,7 +15,7 @@ pub struct TileDto {
 }
 
 /// 玩家快照。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlayerDto {
     pub id: Uuid,
     pub name: String,
@@ -29,7 +29,7 @@ pub struct PlayerDto {
 }
 
 /// 整局游戏快照，客户端以此重建界面。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GameStateDto {
     /// lobby / playing / ended。
     pub status: String,

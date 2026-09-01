@@ -1,3 +1,4 @@
+use monopoly_common::snapshot::PlayerDto;
 use uuid::Uuid;
 
 /// 玩家运行时状态。
@@ -25,6 +26,20 @@ impl Player {
             jail_turns: 0,
             out_of_jail_cards: 0,
             bankrupt: false,
+        }
+    }
+
+    /// 从快照 DTO 重建玩家（对局恢复用）。
+    pub(crate) fn restore(dto: &PlayerDto) -> Self {
+        Self {
+            id: dto.id,
+            name: dto.name.clone(),
+            cash: dto.cash,
+            position: dto.position,
+            in_jail: dto.in_jail,
+            jail_turns: dto.jail_turns,
+            out_of_jail_cards: dto.out_of_jail_cards,
+            bankrupt: dto.bankrupt,
         }
     }
 }

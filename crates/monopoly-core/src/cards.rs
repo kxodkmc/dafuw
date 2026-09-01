@@ -90,6 +90,26 @@ impl Deck {
         self.cards.is_empty()
     }
 
+    /// 当前洗牌顺序（对局存档用）。
+    pub(crate) fn order_clone(&self) -> Vec<usize> {
+        self.order.clone()
+    }
+
+    /// 当前抽卡位置（对局存档用）。
+    pub(crate) fn draw_index(&self) -> usize {
+        self.draw_index
+    }
+
+    /// 恢复洗牌顺序与抽卡位置（对局恢复用）。
+    ///
+    /// 仅在顺序长度与卡组一致时生效，防御脏数据。
+    pub(crate) fn restore(&mut self, order: &[usize], draw_index: usize) {
+        if order.len() == self.cards.len() {
+            self.order = order.to_vec();
+            self.draw_index = draw_index;
+        }
+    }
+
     /// 标准「机会」卡组。
     pub fn chance() -> Self {
         Self::new(vec![

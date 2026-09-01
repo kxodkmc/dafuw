@@ -3,7 +3,9 @@
 //! 云端开服时用 `--bind 0.0.0.0`，配反向代理提供 TLS 即可，无需改代码。
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 
+use monopoly_persistence::SqliteRepository;
 use monopoly_server::app::{build_router, AppState};
 use tracing_subscriber::EnvFilter;
 
@@ -20,11 +22,26 @@ async fn main() {
     let addr: SocketAddr = format!("{host}:{port}")
         .parse()
         .expect("无效的监听地址，示例: --host 127.0.0.1 --port 8080");
-    let app = build_router(AppState::new());
+
+    // 持久化：数据库路径可用环境变量 `MONOPOLY_DB` 覆盖，默认 `data/monopoly.db`。
+    let db_path =
+        std::env::var("MONOPOLY_DB").unwrap_or_else(|_| "data/monopoly.db".to_string());
+    let repo = Arc::new(SqliteRepository::open(&db_path).expect("初始化数据库失败"));
+    let state = AppState::with_repository(repo);
+    match state.manager.restore_all() {
+        Ok(n) => {
+            if n > 0 {
+                tracing::info!("已恢复 {n} 局进行中的对局，玩家可凭原房号与令牌继续");
+            }
+        }
+        Err(e) => tracing::error!("恢复进行中的对局失败: {e}"),
+    }
+
+    let app = build_router(state);
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .expect("监听端口失败，可能已被占用");
-    tracing::info!("大富翁服务器已启动: http://{addr}");
+    tracing::info!("大富翁服务器已启动: http://{addr}，存档数据库: {db_path}");
     if let Err(e) = axum::serve(listener, app).await {
         tracing::error!("服务器异常退出: {e}");
     }

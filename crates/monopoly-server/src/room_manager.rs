@@ -5,9 +5,12 @@ use std::sync::RwLock;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use uuid::Uuid;
 
+use monopoly_common::command::Command;
 use monopoly_common::event::Event;
 use monopoly_common::room::{RoomCode, RoomSettings};
 use monopoly_common::snapshot::GameStateDto;
+use monopoly_core::engine::GameEngine;
+use monopoly_persistence::GameRepository;
 
 use crate::actor::{spawn_actor, ActorMsg, Session};
 use crate::error::ApiError;
@@ -23,14 +26,24 @@ pub struct RoomHandle {
 }
 
 /// 房间注册表：`8 位房号 → 房间句柄`，负责创建、查找与销毁。
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct RoomManager {
     rooms: RwLock<HashMap<RoomCode, Arc<RoomHandle>>>,
+    /// 持久化仓库；`None` 表示不落盘（测试/演示）。
+    repo: Option<Arc<dyn GameRepository>>,
 }
 
 impl RoomManager {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// 绑定持久化仓库（启用自动保存与启动恢复）。
+    pub fn with_repo(repo: Arc<dyn GameRepository>) -> Self {
+        Self {
+            repo: Some(repo),
+            ..Self::default()
+        }
     }
 
     /// 读取房间表；锁中毒时沿用已被污染的状态，避免 panic 拖垮服务器。
@@ -59,17 +72,85 @@ impl RoomManager {
         let (sender, rx) = mpsc::channel::<ActorMsg>(64);
         let (broadcast, _) = broadcast::channel::<Event>(256);
         let player_tokens = Arc::new(RwLock::new(HashMap::new()));
+        let engine = GameEngine::new(settings).map_err(ApiError::internal)?;
 
+        self.register_room(
+            code,
+            owner_token.clone(),
+            player_tokens.clone(),
+            sender.clone(),
+            broadcast.clone(),
+        );
+        spawn_actor(
+            code,
+            owner_token.clone(),
+            engine,
+            rx,
+            broadcast,
+            player_tokens,
+            self.repo.clone(),
+        );
+        Ok((code, owner_token))
+    }
+
+    /// 服务器启动时从仓库恢复所有未结束的对局，重新注册房间并拉起 Actor。
+    ///
+    /// 返回成功恢复的房间数；单局恢复失败会整体中止（启动即失败更安全，避免半恢复状态）。
+    pub fn restore_all(&self) -> Result<usize, String> {
+        let Some(repo) = &self.repo else {
+            return Ok(0);
+        };
+        let games = repo.list_active_games()?;
+        let mut restored = 0;
+        for game in games {
+            if self.rooms_read().contains_key(&game.code) {
+                continue;
+            }
+            let engine = GameEngine::restore(&game.archive)
+                .map_err(|e| format!("恢复房间 {} 失败: {e}", game.code))?;
+            let (sender, rx) = mpsc::channel::<ActorMsg>(64);
+            let (broadcast, _) = broadcast::channel::<Event>(256);
+            let tokens: HashMap<String, Uuid> = game.player_tokens.iter().cloned().collect();
+            let player_tokens = Arc::new(RwLock::new(tokens));
+
+            self.register_room(
+                game.code,
+                game.owner_token.clone(),
+                player_tokens.clone(),
+                sender.clone(),
+                broadcast.clone(),
+            );
+            spawn_actor(
+                game.code,
+                game.owner_token.clone(),
+                engine,
+                rx,
+                broadcast,
+                player_tokens,
+                self.repo.clone(),
+            );
+            restored += 1;
+        }
+        Ok(restored)
+    }
+
+    /// 登记房间句柄并加入注册表。
+    fn register_room(
+        &self,
+        code: RoomCode,
+        owner_token: String,
+        player_tokens: Arc<RwLock<HashMap<String, Uuid>>>,
+        sender: mpsc::Sender<ActorMsg>,
+        broadcast: broadcast::Sender<Event>,
+    ) {
         let handle = Arc::new(RoomHandle {
             code,
-            owner_token: owner_token.clone(),
-            sender: sender.clone(),
-            player_tokens: player_tokens.clone(),
-            broadcast: broadcast.clone(),
+            owner_token,
+            sender,
+            player_tokens,
+            broadcast,
         });
-        spawn_actor(settings, rx, broadcast, player_tokens);
         self.rooms_write().insert(code, handle);
-        Ok((code, owner_token))
     }
 
     /// 生成不重复的 8 位数字房号。
@@ -141,5 +222,13 @@ impl RoomHandle {
         rx.await
             .map_err(|_| ApiError::internal("房间已关闭"))?
             .map_err(ApiError::bad_request)
+    }
+
+    /// 提交一条玩家指令（WS 网关与测试复用）。
+    pub async fn command(&self, session: Session, cmd: Command) -> Result<(), ApiError> {
+        self.sender
+            .send(ActorMsg::Command { session, cmd })
+            .await
+            .map_err(|_| ApiError::internal("房间已关闭"))
     }
 }

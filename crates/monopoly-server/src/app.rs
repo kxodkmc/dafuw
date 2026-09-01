@@ -6,6 +6,8 @@ use std::time::Instant;
 use axum::routing::{get, post};
 use axum::Router;
 
+use monopoly_persistence::GameRepository;
+
 use crate::http::{create_room, delete_room, get_room, health, join_room, start_game};
 use crate::room_manager::RoomManager;
 use crate::ws::ws_handler;
@@ -30,6 +32,14 @@ impl Default for AppState {
 impl AppState {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// 带持久化仓库的状态：启用自动保存，可在启动时恢复进行中的对局。
+    pub fn with_repository(repo: Arc<dyn GameRepository>) -> Self {
+        Self {
+            manager: Arc::new(RoomManager::with_repo(repo)),
+            started_at: Instant::now(),
+        }
     }
 }
 

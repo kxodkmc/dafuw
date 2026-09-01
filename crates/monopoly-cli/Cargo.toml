@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 monopoly-server = { path = "../monopoly-server" }
+monopoly-persistence = { path = "../monopoly-persistence" }
 axum.workspace = true
 tokio.workspace = true
 tracing.workspace = true

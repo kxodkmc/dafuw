@@ -1,3 +1,4 @@
+use monopoly_common::snapshot::TileDto;
 use uuid::Uuid;
 
 use crate::board::{Board, Group, TileKind};
@@ -255,6 +256,23 @@ impl Deeds {
             }
         }
         tiles
+    }
+
+    /// 从快照覆盖地产登记：归属 / 房屋 / 抵押，并恢复银行库存（对局恢复用）。
+    pub(crate) fn restore(
+        &mut self,
+        tiles: &[TileDto],
+        houses_available: u16,
+        hotels_available: u16,
+    ) {
+        for t in tiles {
+            let idx = t.id % self.owner.len();
+            self.owner[idx] = t.owner;
+            self.houses[idx] = t.houses;
+            self.mortgaged[idx] = t.mortgaged;
+        }
+        self.houses_available = houses_available;
+        self.hotels_available = hotels_available;
     }
 
     /// 玩家地产总估值（净资产的房产部分）。
