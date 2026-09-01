@@ -77,7 +77,7 @@ impl GameEngine {
 
     /// 大厅阶段加入玩家（座位）。
     ///
-    /// `avatar`/`color` 由玩家自选，房间内「形象 + 颜色」组合必须唯一；
+    /// `name` 在房间内唯一；`avatar`/`color` 由玩家自选，房间内「形象 + 颜色」组合必须唯一；
     /// 形象相同但颜色不同（如红色狗 vs 绿色狗）视为不同组合，允许并存。
     pub fn add_player(
         &mut self,
@@ -94,6 +94,9 @@ impl GameEngine {
         }
         if self.players.iter().any(|p| p.id == id) {
             return Err("该玩家已在房间中".into());
+        }
+        if self.players.iter().any(|p| p.name == name) {
+            return Err(format!("昵称已被占用：{name}"));
         }
         if self.players.iter().any(|p| p.avatar == avatar && p.color == color) {
             return Err(format!("该形象组合已被占用：{color}{avatar}"));
@@ -527,6 +530,25 @@ mod tests {
         e.add_player(Uuid::new_v4(), "Alice".to_string(), avatar, color)
             .unwrap();
         assert!(e.start(&mut SeqRng::new(vec![0])).is_err());
+    }
+
+    #[test]
+    fn player_name_must_be_unique() {
+        let mut e = GameEngine::new(RoomSettings::default()).unwrap();
+        let (avatar, color) = crate::tests::support::combo(0);
+        e.add_player(Uuid::new_v4(), "Alice".to_string(), avatar, color)
+            .unwrap();
+
+        // 同名玩家被拒绝（即使形象组合不同）。
+        let (avatar2, color2) = crate::tests::support::combo(1);
+        assert!(e
+            .add_player(Uuid::new_v4(), "Alice".to_string(), avatar2, color2)
+            .is_err());
+
+        // 不同名玩家正常加入。
+        assert!(e
+            .add_player(Uuid::new_v4(), "Bob".to_string(), avatar2, color2)
+            .is_ok());
     }
 
     #[test]

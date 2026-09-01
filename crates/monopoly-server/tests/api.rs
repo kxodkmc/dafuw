@@ -162,6 +162,45 @@ async fn join_validates_name() {
 }
 
 #[tokio::test]
+async fn join_rejects_special_chars_in_name() {
+    let app = router();
+    let (code, _) = create_room(&app, "{}").await;
+
+    // 特殊字符（标点/空格/符号/表情）应被拒绝。
+    for bad in ["Alice!", "A B", "张三@", "😀", "a.b"] {
+        let (status, _) = json_request(
+            &app,
+            "POST",
+            &format!("/api/rooms/{code}/join"),
+            Some(&format!(r#"{{"name":"{bad}","avatar":"dog","color":"red"}}"#)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "含特殊字符应被拒绝: {bad}");
+    }
+
+    // 中文、字母、数字组合允许。
+    let token = join_room(&app, code, "玩家1", "dog", "red").await;
+    assert!(!token.is_empty());
+}
+
+#[tokio::test]
+async fn join_rejects_duplicate_name() {
+    let app = router();
+    let (code, _) = create_room(&app, "{}").await;
+
+    join_room(&app, code, "Alice", "dog", "red").await;
+    // 同名玩家（即使形象组合不同）应被拒绝。
+    let (status, json) = json_request(
+        &app,
+        "POST",
+        &format!("/api/rooms/{code}/join"),
+        Some(r#"{"name":"Alice","avatar":"car","color":"yellow"}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "重名应被拒绝: {json}");
+}
+
+#[tokio::test]
 async fn join_rejects_duplicate_avatar_color_combo() {
     let app = router();
     let (code, _) = create_room(&app, r#"{"settings":{"player_count_max":4}}"#).await;

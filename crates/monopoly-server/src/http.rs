@@ -122,6 +122,10 @@ pub async fn join_room(
     if name.chars().count() > 16 {
         return Err(ApiError::bad_request("昵称过长（最多 16 字符）"));
     }
+    // 仅允许中文、字母与数字，拒绝空格/标点/符号/表情等特殊字符。
+    if !name.chars().all(|c| c.is_alphanumeric()) {
+        return Err(ApiError::bad_request("昵称只能包含中文、字母、数字"));
+    }
     let handle = state
         .manager
         .get(code)
