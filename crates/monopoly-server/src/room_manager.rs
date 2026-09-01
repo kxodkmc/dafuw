@@ -12,7 +12,7 @@ use monopoly_common::snapshot::GameStateDto;
 use monopoly_core::engine::GameEngine;
 use monopoly_persistence::GameRepository;
 
-use crate::actor::{spawn_actor, ActorMsg, Session};
+use crate::actor::{spawn_actor, ActorMsg, JoinResult, Session};
 use crate::error::ApiError;
 
 /// 一个房间的句柄：向 Actor 发指令、读配置、校验令牌。
@@ -198,14 +198,11 @@ impl RoomHandle {
         tokens.get(token).copied().map(Session::Player)
     }
 
-    /// 请求入座（走 Actor，保证串行加入）。
-    pub async fn request_join(&self, name: &str) -> Result<(Uuid, String), ApiError> {
+    /// 请求入座（走 Actor，保证串行加入）。系统随机分配昵称/形象/颜色并返回。
+    pub async fn request_join(&self) -> Result<JoinResult, ApiError> {
         let (tx, rx) = oneshot::channel();
         self.sender
-            .send(ActorMsg::Join {
-                name: name.to_string(),
-                reply: tx,
-            })
+            .send(ActorMsg::Join { reply: tx })
             .await
             .map_err(|_| ApiError::internal("房间已关闭"))?;
         rx.await

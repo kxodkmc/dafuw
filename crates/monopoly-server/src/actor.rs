@@ -10,12 +10,13 @@ use std::sync::RwLock;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use uuid::Uuid;
 
+use monopoly_common::avatar::{Avatar, Color};
 use monopoly_common::command::Command;
 use monopoly_common::event::Event;
 use monopoly_common::room::RoomCode;
 use monopoly_common::snapshot::GameStateDto;
 use monopoly_core::engine::{GameEngine, Phase};
-use monopoly_core::rng::StdRngSource;
+use monopoly_core::rng::{RngSource, StdRngSource};
 use monopoly_persistence::{GameRepository, StoredGame};
 
 /// 会话身份：玩家（持有玩家令牌）或房主（持有房主令牌）。
@@ -25,6 +26,16 @@ pub enum Session {
     Owner,
 }
 
+/// 入座结果：玩家 ID、令牌与系统分配的昵称/形象/颜色。
+#[derive(Debug)]
+pub struct JoinResult {
+    pub player_id: Uuid,
+    pub token: String,
+    pub name: String,
+    pub avatar: Avatar,
+    pub color: Color,
+}
+
 /// 发给房间 Actor 的消息。
 pub enum ActorMsg {
     Command {
@@ -32,8 +43,7 @@ pub enum ActorMsg {
         cmd: Command,
     },
     Join {
-        name: String,
-        reply: oneshot::Sender<Result<(Uuid, String), String>>,
+        reply: oneshot::Sender<Result<JoinResult, String>>,
     },
     Start {
         reply: oneshot::Sender<Result<(), String>>,
@@ -102,8 +112,8 @@ impl RoomActor {
                     self.command(session, cmd);
                     self.persist().await;
                 }
-                ActorMsg::Join { name, reply } => {
-                    let _ = reply.send(self.join(name));
+                ActorMsg::Join { reply } => {
+                    let _ = reply.send(self.join());
                     self.persist().await;
                 }
                 ActorMsg::Start { reply } => {
@@ -187,6 +197,8 @@ impl RoomActor {
                 *count = count.saturating_sub(1);
                 if *count == 0 {
                     self.connected.remove(&id);
+                    // 玩家所有连接断开 → 广播离开事件（客户端据此更新大厅/托管提示）。
+                    let _ = self.tx.send(Event::PlayerLeft { player_id: id });
                 }
             }
         }
@@ -267,10 +279,12 @@ impl RoomActor {
 
     // ---------- 生命周期 ----------
 
-    /// 玩家入座：加入引擎大厅，签发玩家令牌。
-    fn join(&mut self, name: String) -> Result<(Uuid, String), String> {
+    /// 玩家入座：系统随机预设昵称/形象/颜色，签发玩家令牌并返回分配结果。
+    fn join(&mut self) -> Result<JoinResult, String> {
         let id = Uuid::new_v4();
-        self.engine.add_player(id, name.clone())?;
+        let name = self.pick_preset_name();
+        let (avatar, color) = self.pick_preset_combo();
+        self.engine.add_player(id, name.clone(), avatar, color)?;
         let token = Uuid::new_v4().to_string();
         self.player_tokens
             .write()
@@ -279,11 +293,61 @@ impl RoomActor {
         self.broadcast(vec![
             Event::PlayerJoined {
                 player_id: id,
-                name,
+                name: name.clone(),
             },
             Event::RoomSnapshot(self.engine.snapshot()),
         ]);
-        Ok((id, token))
+        Ok(JoinResult {
+            player_id: id,
+            token,
+            name,
+            avatar,
+            color,
+        })
+    }
+
+    /// 系统预设昵称池：入座时从中随机分配未被占用的昵称。
+    const PRESET_NAMES: [&str; 10] = [
+        "小笼包", "奶茶", "火锅", "布丁", "麦兜", "阿福", "豆豆", "菜菜", "球球", "皮蛋",
+    ];
+
+    /// 从预设昵称池中随机挑一个未被占用的昵称；池耗尽时退回「玩家N」。
+    fn pick_preset_name(&mut self) -> String {
+        let used: std::collections::HashSet<&str> = self
+            .engine
+            .players
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect();
+        let pool: Vec<&str> = Self::PRESET_NAMES
+            .iter()
+            .copied()
+            .filter(|n| !used.contains(n))
+            .collect();
+        if pool.is_empty() {
+            return format!("玩家{}", self.engine.players.len() + 1);
+        }
+        let i = self.rng.next_below(pool.len() as u32) as usize;
+        pool[i].to_string()
+    }
+
+    /// 随机挑一个未被占用的「形象+颜色」组合。
+    fn pick_preset_combo(&mut self) -> (Avatar, Color) {
+        let mut avail = Vec::new();
+        for a in Avatar::ALL {
+            for c in Color::ALL {
+                if !self
+                    .engine
+                    .players
+                    .iter()
+                    .any(|p| p.avatar == a && p.color == c)
+                {
+                    avail.push((a, c));
+                }
+            }
+        }
+        let i = self.rng.next_below(avail.len() as u32) as usize;
+        avail[i]
     }
 
     fn start_game(&mut self) -> Result<(), String> {
@@ -371,8 +435,10 @@ mod tests {
     #[test]
     fn all_disconnected_game_pauses_without_crash() {
         let (mut actor, _tx) = seeded_actor(None);
-        let (a, _) = actor.join("Alice".to_string()).unwrap();
-        let (b, _) = actor.join("Bob".to_string()).unwrap();
+        let a = actor.join().unwrap().player_id;
+        let b = actor.join().unwrap().player_id;
+        actor.command(Session::Player(a), Command::SetReady { ready: true });
+        actor.command(Session::Player(b), Command::SetReady { ready: true });
         assert!(actor.is_bot(a));
         assert!(actor.is_bot(b));
         // 全部断线 → 托管暂停（不买地会导致经济停摆、对局无限，故不自动自走）。
@@ -384,8 +450,10 @@ mod tests {
     #[test]
     fn bot_turns_autopiloted_and_reconnect_resumes() {
         let (mut actor, _tx) = seeded_actor(None);
-        let (a, _) = actor.join("Alice".to_string()).unwrap();
-        let _ = actor.join("Bob".to_string()).unwrap();
+        let a = actor.join().unwrap().player_id;
+        let b = actor.join().unwrap().player_id;
+        actor.command(Session::Player(a), Command::SetReady { ready: true });
+        actor.command(Session::Player(b), Command::SetReady { ready: true });
         actor.on_connected(Session::Player(a));
 
         // 有 Alice 在线 → 轮到 Bob（bot）时自动托管推进，最终停在需要 Alice 的地方。
@@ -403,5 +471,47 @@ mod tests {
         let waiting = actor.pending_player().expect("应等待某位玩家行动");
         assert_eq!(waiting, a);
         assert!(!actor.engine.is_over());
+    }
+
+    #[test]
+    fn join_returns_unique_random_presets() {
+        let (mut actor, _tx) = seeded_actor(None);
+        let r1 = actor.join().unwrap();
+        let r2 = actor.join().unwrap();
+        assert_ne!(r1.name, r2.name, "预设昵称应互不重复");
+        assert_ne!(
+            (r1.avatar, r1.color),
+            (r2.avatar, r2.color),
+            "预设形象+颜色组合应互不重复"
+        );
+    }
+
+    #[test]
+    fn update_profile_via_command_applies_and_rejects_bad() {
+        let (mut actor, _tx) = seeded_actor(None);
+        let a = actor.join().unwrap().player_id;
+
+        actor.command(
+            Session::Player(a),
+            Command::UpdateProfile {
+                name: Some("小明".to_string()),
+                avatar: None,
+                color: Some(Color::Blue),
+            },
+        );
+        let p = actor.engine.player(a).unwrap();
+        assert_eq!(p.name, "小明");
+        assert_eq!(p.color, Color::Blue);
+
+        // 非法昵称 → 被拒绝，原资料保持不变。
+        actor.command(
+            Session::Player(a),
+            Command::UpdateProfile {
+                name: Some("小明!".to_string()),
+                avatar: None,
+                color: None,
+            },
+        );
+        assert_eq!(actor.engine.player(a).unwrap().name, "小明");
     }
 }

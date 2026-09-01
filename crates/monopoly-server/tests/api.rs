@@ -52,17 +52,22 @@ async fn create_room(app: &Router, body: &str) -> (u32, String) {
     )
 }
 
-/// 入座并返回玩家令牌。
-async fn join_room(app: &Router, code: u32, name: &str) -> String {
+/// 入座并返回 (玩家令牌, 系统分配的昵称, 形象, 颜色)。
+async fn join_room(app: &Router, code: u32) -> (String, String, String, String) {
     let (status, json) = json_request(
         app,
         "POST",
         &format!("/api/rooms/{code}/join"),
-        Some(&format!(r#"{{"name":"{name}"}}"#)),
+        Some("{}"),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "入座应成功: {json}");
-    json["player_token"].as_str().unwrap().to_string()
+    (
+        json["player_token"].as_str().unwrap().to_string(),
+        json["name"].as_str().unwrap().to_string(),
+        json["avatar"].as_str().unwrap().to_string(),
+        json["color"].as_str().unwrap().to_string(),
+    )
 }
 
 #[tokio::test]
@@ -122,53 +127,55 @@ async fn join_and_query_room() {
     let app = router();
     let (code, _owner) = create_room(&app, r#"{"settings":{"player_count_max":2}}"#).await;
 
-    let token = join_room(&app, code, "Alice").await;
+    let (token, name, avatar, color) = join_room(&app, code).await;
     assert!(!token.is_empty());
+    assert!(!name.is_empty(), "系统应分配预设昵称");
 
     let (status, json) = json_request(&app, "GET", &format!("/api/rooms/{code}"), None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["status"], "lobby");
-    assert_eq!(json["players"][0]["name"], "Alice");
+    assert_eq!(json["players"][0]["name"], name);
+    assert_eq!(json["players"][0]["avatar"], avatar);
+    assert_eq!(json["players"][0]["color"], color);
     assert_eq!(json["tiles"].as_array().unwrap().len(), 40);
 }
 
 #[tokio::test]
-async fn join_validates_name() {
+async fn join_accepts_empty_body_and_presets_are_unique() {
     let app = router();
-    let (code, _) = create_room(&app, "{}").await;
+    let (code, _) = create_room(&app, r#"{"settings":{"player_count_max":4}}"#).await;
 
-    let (status, _) = json_request(
-        &app,
-        "POST",
-        &format!("/api/rooms/{code}/join"),
-        Some(r#"{"name":"   "}"#),
-    )
-    .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST, "空昵称应被拒绝");
+    // 空请求体入座 → 系统随机分配昵称/形象/颜色并返回。
+    let (_, name1, avatar1, color1) = join_room(&app, code).await;
+    let (_, name2, avatar2, color2) = join_room(&app, code).await;
+    assert!(!name1.is_empty());
+    assert_ne!(name1, name2, "预设昵称应互不重复");
+    assert_ne!(
+        (&avatar1, &color1),
+        (&avatar2, &color2),
+        "预设形象+颜色组合应互不重复"
+    );
 
-    let long = "a".repeat(17);
-    let (status, _) = json_request(
-        &app,
-        "POST",
-        &format!("/api/rooms/{code}/join"),
-        Some(&format!(r#"{{"name":"{long}"}}"#)),
-    )
-    .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST, "超长昵称应被拒绝");
+    // 快照应携带系统分配的身份。
+    let (_, json) = json_request(&app, "GET", &format!("/api/rooms/{code}"), None).await;
+    assert_eq!(json["players"][0]["name"], name1);
+    assert_eq!(json["players"][0]["avatar"], avatar1);
+    assert_eq!(json["players"][0]["color"], color1);
+    assert_eq!(json["players"][1]["name"], name2);
 }
 
 #[tokio::test]
 async fn room_full_rejects_new_joins() {
     let app = router();
     let (code, _) = create_room(&app, r#"{"settings":{"player_count_max":2}}"#).await;
-    join_room(&app, code, "Alice").await;
-    join_room(&app, code, "Bob").await;
+    join_room(&app, code).await;
+    join_room(&app, code).await;
 
     let (status, json) = json_request(
         &app,
         "POST",
         &format!("/api/rooms/{code}/join"),
-        Some(r#"{"name":"Eve"}"#),
+        Some("{}"),
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "满员应被拒绝: {json}");
@@ -182,7 +189,7 @@ async fn get_unknown_room_is_404() {
 }
 
 #[tokio::test]
-async fn start_requires_owner_token_and_min_players() {
+async fn start_requires_owner_token_min_players_and_ready() {
     let app = router();
     let (code, owner) = create_room(&app, "{}").await;
 
@@ -206,9 +213,9 @@ async fn start_requires_owner_token_and_min_players() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 
-    // 补足人数后开局成功。
-    join_room(&app, code, "Alice").await;
-    join_room(&app, code, "Bob").await;
+    // 人数足够但未全部就绪 → 400（就绪需经 WS 指令，HTTP 无法置位）。
+    join_room(&app, code).await;
+    join_room(&app, code).await;
     let (status, json) = json_request(
         &app,
         "POST",
@@ -216,11 +223,7 @@ async fn start_requires_owner_token_and_min_players() {
         Some(&format!(r#"{{"owner_token":"{owner}"}}"#)),
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "{json}");
-
-    let (status, json) = json_request(&app, "GET", &format!("/api/rooms/{code}"), None).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(json["status"], "playing");
+    assert_eq!(status, StatusCode::BAD_REQUEST, "未全部就绪应拒绝开局: {json}");
 }
 
 #[tokio::test]
@@ -231,9 +234,9 @@ async fn two_rooms_are_isolated() {
     assert_ne!(code_a, code_b, "两次建房房号应不同");
 
     // 房间 A 满员不影响房间 B 入座。
-    join_room(&app, code_a, "Alice").await;
-    join_room(&app, code_a, "Bob").await;
-    join_room(&app, code_b, "Carol").await;
+    let (_, name_a, _, _) = join_room(&app, code_a).await;
+    join_room(&app, code_a).await;
+    let (_, name_b, _, _) = join_room(&app, code_b).await;
 
     // A 房主令牌不能开局 B 房；B 也要独立令牌。
     let (status, _) = json_request(
@@ -252,9 +255,9 @@ async fn two_rooms_are_isolated() {
     let (_, json_b) = json_request(&app, "GET", &format!("/api/rooms/{code_b}"), None).await;
     let (_, json_a) = json_request(&app, "GET", &format!("/api/rooms/{code_a}"), None).await;
     let _ = owner_b;
-    assert_eq!(json_a["players"][0]["name"], "Alice");
+    assert_eq!(json_a["players"][0]["name"], name_a);
     assert_eq!(json_a["players"].as_array().unwrap().len(), 2);
-    assert_eq!(json_b["players"][0]["name"], "Carol");
+    assert_eq!(json_b["players"][0]["name"], name_b);
     assert_eq!(json_b["players"].as_array().unwrap().len(), 1);
 }
 
@@ -296,7 +299,7 @@ async fn list_rooms_returns_summaries() {
     // 建两个房间（一个带名字，一个未命名），再入座验证人数。
     let (code_named, _) = create_room(&app, r#"{"name":"周末大富翁"}"#).await;
     let (code_plain, _) = create_room(&app, "{}").await;
-    join_room(&app, code_named, "Alice").await;
+    join_room(&app, code_named).await;
 
     let (_, json) = json_request(&app, "GET", "/api/rooms", None).await;
     let rooms = json.as_array().unwrap();

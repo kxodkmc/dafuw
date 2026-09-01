@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::avatar::{Avatar, Color};
+
 /// 交易筹码：现金 + 地块 + 出狱卡。
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct AssetList {
@@ -48,4 +50,12 @@ pub enum Command {
     AcceptTrade { trade_id: Uuid },
     /// 拒绝交易。
     DeclineTrade { trade_id: Uuid },
+    /// 大厅中更新玩家资料（昵称/形象/颜色，未提供的字段保持不变）。
+    UpdateProfile {
+        name: Option<String>,
+        avatar: Option<Avatar>,
+        color: Option<Color>,
+    },
+    /// 大厅中标记/取消准备就绪。
+    SetReady { ready: bool },
 }

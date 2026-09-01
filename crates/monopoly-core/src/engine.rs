@@ -1,3 +1,4 @@
+use monopoly_common::avatar::{Avatar, Color};
 use monopoly_common::command::Command;
 use monopoly_common::event::{Event, PlayerRank};
 use monopoly_common::room::RoomSettings;
@@ -75,28 +76,104 @@ impl GameEngine {
     }
 
     /// 大厅阶段加入玩家（座位）。
-    pub fn add_player(&mut self, id: Uuid, name: String) -> Result<(), String> {
+    ///
+    /// `name` 在房间内唯一；`avatar`/`color` 由玩家自选，房间内「形象 + 颜色」组合必须唯一；
+    /// 形象相同但颜色不同（如红色狗 vs 绿色狗）视为不同组合，允许并存。
+    pub fn add_player(
+        &mut self,
+        id: Uuid,
+        name: String,
+        avatar: Avatar,
+        color: Color,
+    ) -> Result<(), String> {
         if self.phase != Phase::Lobby {
             return Err("对局已开始，无法加入".into());
         }
         if self.players.len() as u8 >= self.settings.player_count_max {
             return Err("房间人数已满".into());
         }
+        validate_name(&name)?;
         if self.players.iter().any(|p| p.id == id) {
             return Err("该玩家已在房间中".into());
         }
-        self.players
-            .push(Player::new(id, name, self.settings.initial_money as i64));
+        if self.players.iter().any(|p| p.name == name) {
+            return Err(format!("昵称已被占用：{name}"));
+        }
+        if self.players.iter().any(|p| p.avatar == avatar && p.color == color) {
+            return Err(format!("该形象组合已被占用：{color}{avatar}"));
+        }
+        self.players.push(Player::new(
+            id,
+            name,
+            avatar,
+            color,
+            self.settings.initial_money as i64,
+        ));
         Ok(())
     }
 
-    /// 开局：洗牌、洗乱玩家顺序、进入 AwaitRoll。
+    /// 大厅中修改昵称/形象/颜色（未提供的字段保持不变）。
+    ///
+    /// 昵称沿用加入时的格式校验（非空、≤16 字符、仅中文/字母/数字），
+    /// 且与「昵称」「形象+颜色组合」的房间内唯一性约束保持一致。
+    pub fn update_profile(
+        &mut self,
+        player: Uuid,
+        name: Option<String>,
+        avatar: Option<Avatar>,
+        color: Option<Color>,
+    ) -> Result<(), String> {
+        if self.phase != Phase::Lobby {
+            return Err("对局已开始，无法修改资料".into());
+        }
+        let cur = self.player(player).ok_or("玩家不在本房间")?.clone();
+        let new_name = name.clone().unwrap_or(cur.name.clone());
+        let new_avatar = avatar.unwrap_or(cur.avatar);
+        let new_color = color.unwrap_or(cur.color);
+        validate_name(&new_name)?;
+        if self.players.iter().any(|q| q.id != player && q.name == new_name) {
+            return Err(format!("昵称已被占用：{new_name}"));
+        }
+        if self
+            .players
+            .iter()
+            .any(|q| q.id != player && q.avatar == new_avatar && q.color == new_color)
+        {
+            return Err(format!("该形象组合已被占用：{new_color}{new_avatar}"));
+        }
+        let p = self.player_mut(player).ok_or("玩家不在本房间")?;
+        if let Some(n) = name {
+            p.name = n.trim().to_string();
+        }
+        if let Some(a) = avatar {
+            p.avatar = a;
+        }
+        if let Some(c) = color {
+            p.color = c;
+        }
+        Ok(())
+    }
+
+    /// 大厅中标记/取消准备就绪。
+    pub fn set_ready(&mut self, player: Uuid, ready: bool) -> Result<(), String> {
+        if self.phase != Phase::Lobby {
+            return Err("对局已开始，无法修改准备状态".into());
+        }
+        let p = self.player_mut(player).ok_or("玩家不在本房间")?;
+        p.ready = ready;
+        Ok(())
+    }
+
+    /// 开局：全员就绪后洗牌、洗乱玩家顺序（系统抽签决定行动顺序）、进入 AwaitRoll。
     pub fn start(&mut self, rng: &mut dyn RngSource) -> Result<Vec<Event>, String> {
         if self.phase != Phase::Lobby {
             return Err("对局已开始".into());
         }
         if self.players.len() < 2 {
             return Err("至少需要 2 名玩家才能开局".into());
+        }
+        if !self.players.iter().all(|p| p.ready) {
+            return Err("所有玩家准备就绪后才能开局".into());
         }
         self.chance.shuffle(rng);
         self.fate.shuffle(rng);
@@ -186,6 +263,21 @@ impl GameEngine {
             }
             Command::DeclineTrade { trade_id } => {
                 self.do_decline_trade(player, trade_id, &mut events)?;
+            }
+            Command::UpdateProfile {
+                name,
+                avatar,
+                color,
+            } => {
+                self.require_player(player)?;
+                self.update_profile(player, name, avatar, color)?;
+            }
+            Command::SetReady { ready } => {
+                self.set_ready(player, ready)?;
+                events.push(Event::PlayerReady {
+                    player_id: player,
+                    ready,
+                });
             }
             Command::StartGame => {
                 return Err("开局请由房主在房间层发起".into());
@@ -403,6 +495,9 @@ impl GameEngine {
             .map(|p| PlayerDto {
                 id: p.id,
                 name: p.name.clone(),
+                avatar: p.avatar,
+                color: p.color,
+                ready: p.ready,
                 cash: p.cash,
                 position: p.position,
                 in_jail: p.in_jail,
@@ -434,6 +529,21 @@ impl GameEngine {
             round: self.round,
         }
     }
+}
+
+/// 昵称格式校验：非空、≤16 字符、仅中文/字母/数字（拒绝空格/标点/符号/表情）。
+pub(crate) fn validate_name(name: &str) -> Result<(), String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("昵称不能为空".into());
+    }
+    if name.chars().count() > 16 {
+        return Err("昵称过长（最多 16 字符）".into());
+    }
+    if !name.chars().all(|c| c.is_alphanumeric()) {
+        return Err("昵称只能包含中文、字母、数字".into());
+    }
+    Ok(())
 }
 
 /// 生成骰子点数。
@@ -491,16 +601,147 @@ mod tests {
         let mut e = GameEngine::new(settings).unwrap();
         let a = Uuid::new_v4();
         let b = Uuid::new_v4();
-        e.add_player(a, "Alice".to_string()).unwrap();
-        e.add_player(b, "Bob".to_string()).unwrap();
+        let (avatar_a, color_a) = crate::tests::support::combo(0);
+        let (avatar_b, color_b) = crate::tests::support::combo(1);
+        e.add_player(a, "Alice".to_string(), avatar_a, color_a)
+            .unwrap();
+        e.add_player(b, "Bob".to_string(), avatar_b, color_b)
+            .unwrap();
+        crate::tests::support::mark_all_ready(&mut e);
         (e, a, b)
+    }
+
+    #[test]
+    fn start_requires_all_ready() {
+        let mut e = GameEngine::new(RoomSettings::default()).unwrap();
+        let (avatar_a, color_a) = crate::tests::support::combo(0);
+        let (avatar_b, color_b) = crate::tests::support::combo(1);
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        e.add_player(a, "Alice".to_string(), avatar_a, color_a)
+            .unwrap();
+        e.add_player(b, "Bob".to_string(), avatar_b, color_b)
+            .unwrap();
+
+        // 无人就绪 → 拒绝开局。
+        assert!(e.start(&mut SeqRng::new(vec![0])).is_err());
+        // 仅一人就绪 → 仍拒绝。
+        e.set_ready(a, true).unwrap();
+        assert!(e.start(&mut SeqRng::new(vec![0])).is_err());
+        // 全员就绪 → 开局成功（系统抽签决定行动顺序）。
+        e.set_ready(b, true).unwrap();
+        assert!(e.start(&mut SeqRng::new(vec![0])).is_ok());
+    }
+
+    #[test]
+    fn set_ready_reflects_in_snapshot_and_is_lobby_only() {
+        let (mut e, a, b) = two_player();
+        // 取消全部就绪 → 快照反映。
+        e.set_ready(a, false).unwrap();
+        e.set_ready(b, false).unwrap();
+        assert!(e.snapshot().players.iter().all(|p| !p.ready));
+
+        e.set_ready(a, true).unwrap();
+        assert!(e.player(a).unwrap().ready);
+        assert!(!e.player(b).unwrap().ready);
+
+        // 全员就绪后开局；开局后就绪状态不可再修改。
+        e.set_ready(b, true).unwrap();
+        e.start(&mut SeqRng::new(vec![0])).unwrap();
+        assert!(e.set_ready(a, false).is_err());
+    }
+
+    #[test]
+    fn update_profile_validates_and_applies() {
+        let (mut e, a, b) = two_player();
+        let bob = e.player(b).unwrap().clone();
+
+        // 只改昵称：合法并生效。
+        e.update_profile(a, Some("小明".to_string()), None, None)
+            .unwrap();
+        assert_eq!(e.player(a).unwrap().name, "小明");
+
+        // 特殊字符/超长昵称被拒绝。
+        assert!(e
+            .update_profile(a, Some("小明!".to_string()), None, None)
+            .is_err());
+        assert!(e
+            .update_profile(a, Some("a".repeat(17)), None, None)
+            .is_err());
+
+        // 与其它玩家重名被拒绝。
+        assert!(e
+            .update_profile(a, Some(bob.name.clone()), None, None)
+            .is_err());
+
+        // 形象+颜色组合与其它玩家冲突被拒绝。
+        assert!(e
+            .update_profile(a, None, Some(bob.avatar), Some(bob.color))
+            .is_err());
+
+        // 同形象不同颜色允许（组合(5) 取同形象、不同颜色）。
+        let (_, other_color) = crate::tests::support::combo(5);
+        assert!(other_color != bob.color);
+        assert!(e
+            .update_profile(a, None, Some(bob.avatar), Some(other_color))
+            .is_ok());
+        assert_eq!(e.player(a).unwrap().avatar, bob.avatar);
+        assert_eq!(e.player(a).unwrap().color, other_color);
     }
 
     #[test]
     fn start_requires_at_least_two_players() {
         let mut e = GameEngine::new(RoomSettings::default()).unwrap();
-        e.add_player(Uuid::new_v4(), "Alice".to_string()).unwrap();
+        let (avatar, color) = crate::tests::support::combo(0);
+        e.add_player(Uuid::new_v4(), "Alice".to_string(), avatar, color)
+            .unwrap();
         assert!(e.start(&mut SeqRng::new(vec![0])).is_err());
+    }
+
+    #[test]
+    fn player_name_must_be_unique() {
+        let mut e = GameEngine::new(RoomSettings::default()).unwrap();
+        let (avatar, color) = crate::tests::support::combo(0);
+        e.add_player(Uuid::new_v4(), "Alice".to_string(), avatar, color)
+            .unwrap();
+
+        // 同名玩家被拒绝（即使形象组合不同）。
+        let (avatar2, color2) = crate::tests::support::combo(1);
+        assert!(e
+            .add_player(Uuid::new_v4(), "Alice".to_string(), avatar2, color2)
+            .is_err());
+
+        // 不同名玩家正常加入。
+        assert!(e
+            .add_player(Uuid::new_v4(), "Bob".to_string(), avatar2, color2)
+            .is_ok());
+    }
+
+    #[test]
+    fn avatar_color_combo_must_be_unique() {
+        let mut e = GameEngine::new(RoomSettings::default()).unwrap();
+        let (avatar, color) = crate::tests::support::combo(0);
+        e.add_player(Uuid::new_v4(), "Alice".to_string(), avatar, color)
+            .unwrap();
+
+        // 完全相同的组合被拒绝。
+        assert!(e
+            .add_player(Uuid::new_v4(), "Bob".to_string(), avatar, color)
+            .is_err());
+
+        // 同形象不同颜色：允许（红色狗 vs 绿色狗）。
+        let (_, other_color) = crate::tests::support::combo(5);
+        assert!(other_color != color);
+        assert!(e
+            .add_player(Uuid::new_v4(), "Carol".to_string(), avatar, other_color)
+            .is_ok());
+
+        // 不同形象同颜色：允许。
+        let (other_avatar, _) = crate::tests::support::combo(1);
+        assert!(other_avatar != avatar);
+        assert!(e
+            .add_player(Uuid::new_v4(), "Dave".to_string(), other_avatar, color)
+            .is_ok());
     }
 
     #[test]

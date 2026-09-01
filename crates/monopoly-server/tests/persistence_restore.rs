@@ -42,8 +42,25 @@ async fn restore_room_and_continue_with_same_tokens() {
     let (code, owner_token) = manager.create(settings).unwrap();
     let handle = manager.get(code).expect("房间应存在");
 
-    let (a_id, a_token) = handle.request_join("Alice").await.unwrap();
-    let (_b_id, b_token) = handle.request_join("Bob").await.unwrap();
+    let a = handle.request_join().await.unwrap();
+    let (a_id, a_token) = (a.player_id, a.token);
+    let b = handle.request_join().await.unwrap();
+    let b_token = b.token;
+    // 双方就绪后才能开局。
+    handle
+        .command(
+            handle.resolve_token(&a_token).expect("令牌应有效"),
+            Command::SetReady { ready: true },
+        )
+        .await
+        .expect("设置就绪应成功");
+    handle
+        .command(
+            handle.resolve_token(&b_token).expect("令牌应有效"),
+            Command::SetReady { ready: true },
+        )
+        .await
+        .expect("设置就绪应成功");
     handle.start().await.expect("开局应成功");
     wait_saved(&repo, code.as_u32(), "playing").await;
 
