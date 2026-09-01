@@ -19,6 +19,8 @@ use crate::error::ApiError;
 #[derive(Debug)]
 pub struct RoomHandle {
     pub code: RoomCode,
+    /// 房间配置（含名称/人数上限，供列表与恢复展示）。
+    pub settings: RoomSettings,
     pub owner_token: String,
     pub sender: mpsc::Sender<ActorMsg>,
     pub player_tokens: Arc<RwLock<HashMap<String, Uuid>>>,
@@ -59,6 +61,11 @@ impl RoomManager {
         self.rooms_read().get(&code).cloned()
     }
 
+    /// 当前全部房间句柄（局域网发现/列表用）。
+    pub fn all(&self) -> Vec<Arc<RoomHandle>> {
+        self.rooms_read().values().cloned().collect()
+    }
+
     /// 当前房间总数（用于健康检查等观测）。
     pub fn room_count(&self) -> usize {
         self.rooms_read().len()
@@ -72,10 +79,11 @@ impl RoomManager {
         let (sender, rx) = mpsc::channel::<ActorMsg>(64);
         let (broadcast, _) = broadcast::channel::<Event>(256);
         let player_tokens = Arc::new(RwLock::new(HashMap::new()));
-        let engine = GameEngine::new(settings).map_err(ApiError::internal)?;
+        let engine = GameEngine::new(settings.clone()).map_err(ApiError::internal)?;
 
         self.register_room(
             code,
+            settings.clone(),
             owner_token.clone(),
             player_tokens.clone(),
             sender.clone(),
@@ -115,6 +123,7 @@ impl RoomManager {
 
             self.register_room(
                 game.code,
+                game.archive.settings.clone(),
                 game.owner_token.clone(),
                 player_tokens.clone(),
                 sender.clone(),
@@ -138,6 +147,7 @@ impl RoomManager {
     fn register_room(
         &self,
         code: RoomCode,
+        settings: RoomSettings,
         owner_token: String,
         player_tokens: Arc<RwLock<HashMap<String, Uuid>>>,
         sender: mpsc::Sender<ActorMsg>,
@@ -145,6 +155,7 @@ impl RoomManager {
     ) {
         let handle = Arc::new(RoomHandle {
             code,
+            settings,
             owner_token,
             sender,
             player_tokens,

@@ -13,5 +13,5 @@ pub use archive::{ArchiveExtra, AuctionDto, GameArchive, TradeDto};
 pub use command::{AssetList, Command};
 pub use error::{ApiError, ErrorBody, ErrorKind};
 pub use event::{ChatPayload, Event, PlayerRank};
-pub use room::{RoomCode, RoomSettings};
+pub use room::{RoomCode, RoomSettings, RoomSummary};
 pub use snapshot::{GameStateDto, PlayerDto, TileDto};

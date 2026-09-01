@@ -8,7 +8,9 @@ use axum::Router;
 
 use monopoly_persistence::GameRepository;
 
-use crate::http::{create_room, delete_room, get_room, health, join_room, start_game};
+use crate::http::{
+    create_room, delete_room, get_room, health, join_room, list_rooms, start_game,
+};
 use crate::room_manager::RoomManager;
 use crate::ws::ws_handler;
 
@@ -47,7 +49,7 @@ impl AppState {
 pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
-        .route("/api/rooms", post(create_room))
+        .route("/api/rooms", get(list_rooms).post(create_room))
         .route("/api/rooms/{code}/join", post(join_room))
         .route("/api/rooms/{code}", get(get_room).delete(delete_room))
         .route("/api/rooms/{code}/start", post(start_game))

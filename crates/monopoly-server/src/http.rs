@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use monopoly_common::error::ApiError as CommonError;
 use monopoly_common::event::Event;
-use monopoly_common::room::{RoomCode, RoomSettings};
+use monopoly_common::room::{RoomCode, RoomSettings, RoomSummary};
 use monopoly_common::snapshot::GameStateDto;
 
 use crate::app::AppState;
@@ -19,6 +19,9 @@ use crate::error::{ApiError, ApiResult};
 pub struct CreateRoomReq {
     #[serde(default)]
     pub settings: Option<RoomSettings>,
+    /// 房间名称（可选，最多 30 字符）。
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -71,13 +74,34 @@ pub async fn create_room(
     State(state): State<AppState>,
     Json(req): Json<CreateRoomReq>,
 ) -> ApiResult<Json<CreateRoomRes>> {
-    let settings = req.settings.unwrap_or_default();
+    let mut settings = req.settings.unwrap_or_default();
+    if let Some(name) = req.name {
+        settings.name = name.trim().to_string();
+    }
     settings.validate().map_err(CommonError::BadRequest)?;
     let (room_code, owner_token) = state.manager.create(settings)?;
     Ok(Json(CreateRoomRes {
         room_code: room_code.as_u32(),
         owner_token,
     }))
+}
+
+/// 列出所有房间概要（局域网发现用，无需鉴权）。
+pub async fn list_rooms(
+    State(state): State<AppState>,
+) -> ApiResult<Json<Vec<RoomSummary>>> {
+    let mut out = Vec::new();
+    for handle in state.manager.all() {
+        let snap = handle.query_snapshot().await?;
+        out.push(RoomSummary {
+            code: handle.code.as_u32(),
+            name: handle.settings.name.clone(),
+            status: snap.status,
+            players: snap.players.len(),
+            player_count_max: handle.settings.player_count_max,
+        });
+    }
+    Ok(Json(out))
 }
 
 /// 加入房间（入座）：返回玩家 ID 与玩家令牌。

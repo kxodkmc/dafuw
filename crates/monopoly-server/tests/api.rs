@@ -284,3 +284,50 @@ async fn delete_room_requires_owner_and_removes_room() {
     let (status, _) = json_request(&app, "GET", &format!("/api/rooms/{code}"), None).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "解散后房间应消失");
 }
+
+#[tokio::test]
+async fn list_rooms_returns_summaries() {
+    let app = router();
+    // 空列表：无房间时返回空数组。
+    let (status, json) = json_request(&app, "GET", "/api/rooms", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json.as_array().unwrap().len(), 0);
+
+    // 建两个房间（一个带名字，一个未命名），再入座验证人数。
+    let (code_named, _) = create_room(&app, r#"{"name":"周末大富翁"}"#).await;
+    let (code_plain, _) = create_room(&app, "{}").await;
+    join_room(&app, code_named, "Alice").await;
+
+    let (_, json) = json_request(&app, "GET", "/api/rooms", None).await;
+    let rooms = json.as_array().unwrap();
+    assert_eq!(rooms.len(), 2);
+
+    let named = rooms
+        .iter()
+        .find(|r| r["code"].as_u64().unwrap() as u32 == code_named)
+        .unwrap();
+    assert_eq!(named["name"], "周末大富翁");
+    assert_eq!(named["status"], "lobby");
+    assert_eq!(named["players"], 1);
+    assert_eq!(named["player_count_max"], 8);
+
+    let plain = rooms
+        .iter()
+        .find(|r| r["code"].as_u64().unwrap() as u32 == code_plain)
+        .unwrap();
+    assert_eq!(plain["name"], "");
+}
+
+#[tokio::test]
+async fn create_room_rejects_overlong_name() {
+    let app = router();
+    let long = "房".repeat(31);
+    let (status, _) = json_request(
+        &app,
+        "POST",
+        "/api/rooms",
+        Some(&format!(r#"{{"name":"{long}"}}"#)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "超长房间名应被拒绝");
+}
