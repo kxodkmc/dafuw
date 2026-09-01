@@ -80,8 +80,8 @@ impl Server {
         )
     }
 
-    async fn join_room(&self, code: u32, name: &str) -> String {
-        let body = format!(r#"{{"name":"{name}"}}"#);
+    async fn join_room(&self, code: u32, name: &str, avatar: &str, color: &str) -> String {
+        let body = format!(r#"{{"name":"{name}","avatar":"{avatar}","color":"{color}"}}"#);
         let (status, v) = self
             .json("POST", &format!("/api/rooms/{code}/join"), Some(&body))
             .await;
@@ -144,8 +144,8 @@ async fn ws_rejects_invalid_token() {
 async fn ws_full_game_turn_flow() {
     let srv = spawn_server().await;
     let (code, owner) = srv.create_room(2).await;
-    let token_a = srv.join_room(code, "Alice").await;
-    let token_b = srv.join_room(code, "Bob").await;
+    let token_a = srv.join_room(code, "Alice", "dog", "red").await;
+    let token_b = srv.join_room(code, "Bob", "car", "yellow").await;
 
     let mut ws_a = srv.ws(code, &token_a).await.expect("Alice 连接失败");
     expect_event_until(&mut ws_a, |e| matches!(e, Event::RoomSnapshot(_)))
@@ -226,8 +226,8 @@ async fn ws_rooms_are_isolated() {
     let srv = spawn_server().await;
     let (code1, _) = srv.create_room(2).await;
     let (code2, _) = srv.create_room(2).await;
-    let tok1 = srv.join_room(code1, "A").await;
-    let tok2 = srv.join_room(code2, "A").await;
+    let tok1 = srv.join_room(code1, "A", "dog", "red").await;
+    let tok2 = srv.join_room(code2, "A", "dog", "red").await;
 
     let mut ws1 = srv.ws(code1, &tok1).await.expect("房 1 连接失败");
     let _ = expect_event_until(&mut ws1, |e| matches!(e, Event::RoomSnapshot(_))).await;
@@ -251,8 +251,8 @@ async fn ws_rooms_are_isolated() {
 async fn ws_disconnected_player_is_autopiloted() {
     let srv = spawn_server().await;
     let (code, owner) = srv.create_room(2).await;
-    let token_a = srv.join_room(code, "Alice").await;
-    let _token_b = srv.join_room(code, "Bob").await; // Bob 永不建连 → 托管
+    let token_a = srv.join_room(code, "Alice", "dog", "red").await;
+    let _token_b = srv.join_room(code, "Bob", "car", "yellow").await; // Bob 永不建连 → 托管
 
     let mut ws_a = srv.ws(code, &token_a).await.expect("Alice 连接失败");
     let _ = expect_event_until(&mut ws_a, |e| matches!(e, Event::RoomSnapshot(_))).await;

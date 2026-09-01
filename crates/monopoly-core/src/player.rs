@@ -1,3 +1,4 @@
+use monopoly_common::avatar::{Avatar, Color};
 use monopoly_common::snapshot::PlayerDto;
 use uuid::Uuid;
 
@@ -6,6 +7,10 @@ use uuid::Uuid;
 pub struct Player {
     pub id: Uuid,
     pub name: String,
+    /// 自选形象。
+    pub avatar: Avatar,
+    /// 自选颜色。
+    pub color: Color,
     pub cash: i64,
     pub position: usize,
     pub in_jail: bool,
@@ -16,10 +21,12 @@ pub struct Player {
 }
 
 impl Player {
-    pub fn new(id: Uuid, name: String, cash: i64) -> Self {
+    pub fn new(id: Uuid, name: String, avatar: Avatar, color: Color, cash: i64) -> Self {
         Self {
             id,
             name,
+            avatar,
+            color,
             cash,
             position: 0,
             in_jail: false,
@@ -34,6 +41,8 @@ impl Player {
         Self {
             id: dto.id,
             name: dto.name.clone(),
+            avatar: dto.avatar,
+            color: dto.color,
             cash: dto.cash,
             position: dto.position,
             in_jail: dto.in_jail,

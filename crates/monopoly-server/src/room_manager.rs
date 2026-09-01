@@ -5,6 +5,7 @@ use std::sync::RwLock;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use uuid::Uuid;
 
+use monopoly_common::avatar::{Avatar, Color};
 use monopoly_common::command::Command;
 use monopoly_common::event::Event;
 use monopoly_common::room::{RoomCode, RoomSettings};
@@ -199,11 +200,18 @@ impl RoomHandle {
     }
 
     /// 请求入座（走 Actor，保证串行加入）。
-    pub async fn request_join(&self, name: &str) -> Result<(Uuid, String), ApiError> {
+    pub async fn request_join(
+        &self,
+        name: &str,
+        avatar: Avatar,
+        color: Color,
+    ) -> Result<(Uuid, String), ApiError> {
         let (tx, rx) = oneshot::channel();
         self.sender
             .send(ActorMsg::Join {
                 name: name.to_string(),
+                avatar,
+                color,
                 reply: tx,
             })
             .await

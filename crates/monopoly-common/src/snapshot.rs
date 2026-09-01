@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::avatar::{Avatar, Color};
+
 /// 地块快照。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TileDto {
@@ -19,6 +21,10 @@ pub struct TileDto {
 pub struct PlayerDto {
     pub id: Uuid,
     pub name: String,
+    /// 自选形象。
+    pub avatar: Avatar,
+    /// 自选颜色。
+    pub color: Color,
     pub cash: i64,
     pub position: usize,
     pub in_jail: bool,

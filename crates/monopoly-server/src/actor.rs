@@ -10,6 +10,7 @@ use std::sync::RwLock;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use uuid::Uuid;
 
+use monopoly_common::avatar::{Avatar, Color};
 use monopoly_common::command::Command;
 use monopoly_common::event::Event;
 use monopoly_common::room::RoomCode;
@@ -33,6 +34,8 @@ pub enum ActorMsg {
     },
     Join {
         name: String,
+        avatar: Avatar,
+        color: Color,
         reply: oneshot::Sender<Result<(Uuid, String), String>>,
     },
     Start {
@@ -102,8 +105,13 @@ impl RoomActor {
                     self.command(session, cmd);
                     self.persist().await;
                 }
-                ActorMsg::Join { name, reply } => {
-                    let _ = reply.send(self.join(name));
+                ActorMsg::Join {
+                    name,
+                    avatar,
+                    color,
+                    reply,
+                } => {
+                    let _ = reply.send(self.join(name, avatar, color));
                     self.persist().await;
                 }
                 ActorMsg::Start { reply } => {
@@ -268,9 +276,14 @@ impl RoomActor {
     // ---------- 生命周期 ----------
 
     /// 玩家入座：加入引擎大厅，签发玩家令牌。
-    fn join(&mut self, name: String) -> Result<(Uuid, String), String> {
+    fn join(
+        &mut self,
+        name: String,
+        avatar: Avatar,
+        color: Color,
+    ) -> Result<(Uuid, String), String> {
         let id = Uuid::new_v4();
-        self.engine.add_player(id, name.clone())?;
+        self.engine.add_player(id, name.clone(), avatar, color)?;
         let token = Uuid::new_v4().to_string();
         self.player_tokens
             .write()
@@ -371,8 +384,12 @@ mod tests {
     #[test]
     fn all_disconnected_game_pauses_without_crash() {
         let (mut actor, _tx) = seeded_actor(None);
-        let (a, _) = actor.join("Alice".to_string()).unwrap();
-        let (b, _) = actor.join("Bob".to_string()).unwrap();
+        let (a, _) = actor
+            .join("Alice".to_string(), Avatar::Dog, Color::Red)
+            .unwrap();
+        let (b, _) = actor
+            .join("Bob".to_string(), Avatar::Car, Color::Yellow)
+            .unwrap();
         assert!(actor.is_bot(a));
         assert!(actor.is_bot(b));
         // 全部断线 → 托管暂停（不买地会导致经济停摆、对局无限，故不自动自走）。
@@ -384,8 +401,12 @@ mod tests {
     #[test]
     fn bot_turns_autopiloted_and_reconnect_resumes() {
         let (mut actor, _tx) = seeded_actor(None);
-        let (a, _) = actor.join("Alice".to_string()).unwrap();
-        let _ = actor.join("Bob".to_string()).unwrap();
+        let (a, _) = actor
+            .join("Alice".to_string(), Avatar::Dog, Color::Red)
+            .unwrap();
+        let _ = actor
+            .join("Bob".to_string(), Avatar::Car, Color::Yellow)
+            .unwrap();
         actor.on_connected(Session::Player(a));
 
         // 有 Alice 在线 → 轮到 Bob（bot）时自动托管推进，最终停在需要 Alice 的地方。

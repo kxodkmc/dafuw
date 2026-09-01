@@ -4,6 +4,7 @@
 use crate::cards::Deck;
 use crate::engine::{GameEngine, Phase};
 use crate::rng::{RngSource, StdRngSource};
+use crate::tests::support::combo;
 use monopoly_common::command::Command;
 use monopoly_common::room::RoomSettings;
 use rand::rngs::StdRng;
@@ -18,9 +19,12 @@ fn run_random_game(seed: u64, players: usize, max_rounds: u32) {
     };
     let mut e = GameEngine::new(settings).expect("配置必须合法");
     for i in 0..players {
+        let (avatar, color) = combo(i);
         e.add_player(
             Uuid::from_u128(100 + i as u128 + seed as u128 * 32),
             format!("P{i}"),
+            avatar,
+            color,
         )
         .unwrap();
     }

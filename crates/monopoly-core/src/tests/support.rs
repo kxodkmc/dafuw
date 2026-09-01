@@ -2,8 +2,14 @@
 
 use crate::engine::GameEngine;
 use crate::rng::RngSource;
+use monopoly_common::avatar::{Avatar, Color};
 use monopoly_common::room::RoomSettings;
 use uuid::Uuid;
+
+/// 按序号取互不重复的「形象 + 颜色」组合（5×5=25 种，覆盖房间人数上限 8）。
+pub fn combo(i: usize) -> (Avatar, Color) {
+    (Avatar::ALL[i % 5], Color::ALL[(i / 5) % 5])
+}
 
 /// 固定序列随机源：按序返回 `val % bound`，越界循环复用。
 /// 注意：需保证 `vals` 非空。
@@ -42,7 +48,8 @@ pub fn engine_with_players(n: usize, max_rounds: Option<u32>) -> (GameEngine, Ve
     let mut ids = Vec::new();
     for i in 0..n {
         let id = Uuid::new_v4();
-        e.add_player(id, format!("P{i}")).unwrap();
+        let (avatar, color) = combo(i);
+        e.add_player(id, format!("P{i}"), avatar, color).unwrap();
         ids.push(id);
     }
     (e, ids)
@@ -57,7 +64,8 @@ pub fn engine_with_fixed_ids(n: usize) -> (GameEngine, Vec<Uuid>) {
     let mut e = GameEngine::new(settings).expect("默认配置必须合法");
     let ids: Vec<Uuid> = (1..=n).map(|i| Uuid::from_u128(i as u128)).collect();
     for (i, id) in ids.iter().enumerate() {
-        e.add_player(*id, format!("P{i}")).unwrap();
+        let (avatar, color) = combo(i);
+        e.add_player(*id, format!("P{i}"), avatar, color).unwrap();
     }
     (e, ids)
 }

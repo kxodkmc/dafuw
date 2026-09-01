@@ -7,6 +7,7 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use monopoly_common::avatar::{Avatar, Color};
 use monopoly_common::error::ApiError as CommonError;
 use monopoly_common::event::Event;
 use monopoly_common::room::{RoomCode, RoomSettings, RoomSummary};
@@ -33,6 +34,10 @@ pub struct CreateRoomRes {
 #[derive(Debug, Deserialize)]
 pub struct JoinReq {
     pub name: String,
+    /// 自选形象（狗/轿车/单车/大树/床）。
+    pub avatar: Avatar,
+    /// 自选颜色（红/黄/绿/蓝/粉）。
+    pub color: Color,
 }
 
 #[derive(Debug, Serialize)]
@@ -121,7 +126,9 @@ pub async fn join_room(
         .manager
         .get(code)
         .ok_or_else(|| ApiError::not_found("房间"))?;
-    let (player_id, player_token) = handle.request_join(&name).await?;
+    let (player_id, player_token) = handle
+        .request_join(&name, req.avatar, req.color)
+        .await?;
     Ok(Json(JoinRes {
         player_id,
         player_token,

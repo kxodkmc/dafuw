@@ -1,3 +1,4 @@
+use monopoly_common::avatar::{Avatar, Color};
 use monopoly_common::command::Command;
 use monopoly_common::event::{Event, PlayerRank};
 use monopoly_common::room::RoomSettings;
@@ -75,7 +76,16 @@ impl GameEngine {
     }
 
     /// 大厅阶段加入玩家（座位）。
-    pub fn add_player(&mut self, id: Uuid, name: String) -> Result<(), String> {
+    ///
+    /// `avatar`/`color` 由玩家自选，房间内「形象 + 颜色」组合必须唯一；
+    /// 形象相同但颜色不同（如红色狗 vs 绿色狗）视为不同组合，允许并存。
+    pub fn add_player(
+        &mut self,
+        id: Uuid,
+        name: String,
+        avatar: Avatar,
+        color: Color,
+    ) -> Result<(), String> {
         if self.phase != Phase::Lobby {
             return Err("对局已开始，无法加入".into());
         }
@@ -85,8 +95,16 @@ impl GameEngine {
         if self.players.iter().any(|p| p.id == id) {
             return Err("该玩家已在房间中".into());
         }
-        self.players
-            .push(Player::new(id, name, self.settings.initial_money as i64));
+        if self.players.iter().any(|p| p.avatar == avatar && p.color == color) {
+            return Err(format!("该形象组合已被占用：{color}{avatar}"));
+        }
+        self.players.push(Player::new(
+            id,
+            name,
+            avatar,
+            color,
+            self.settings.initial_money as i64,
+        ));
         Ok(())
     }
 
@@ -403,6 +421,8 @@ impl GameEngine {
             .map(|p| PlayerDto {
                 id: p.id,
                 name: p.name.clone(),
+                avatar: p.avatar,
+                color: p.color,
                 cash: p.cash,
                 position: p.position,
                 in_jail: p.in_jail,
@@ -491,16 +511,49 @@ mod tests {
         let mut e = GameEngine::new(settings).unwrap();
         let a = Uuid::new_v4();
         let b = Uuid::new_v4();
-        e.add_player(a, "Alice".to_string()).unwrap();
-        e.add_player(b, "Bob".to_string()).unwrap();
+        let (avatar_a, color_a) = crate::tests::support::combo(0);
+        let (avatar_b, color_b) = crate::tests::support::combo(1);
+        e.add_player(a, "Alice".to_string(), avatar_a, color_a)
+            .unwrap();
+        e.add_player(b, "Bob".to_string(), avatar_b, color_b)
+            .unwrap();
         (e, a, b)
     }
 
     #[test]
     fn start_requires_at_least_two_players() {
         let mut e = GameEngine::new(RoomSettings::default()).unwrap();
-        e.add_player(Uuid::new_v4(), "Alice".to_string()).unwrap();
+        let (avatar, color) = crate::tests::support::combo(0);
+        e.add_player(Uuid::new_v4(), "Alice".to_string(), avatar, color)
+            .unwrap();
         assert!(e.start(&mut SeqRng::new(vec![0])).is_err());
+    }
+
+    #[test]
+    fn avatar_color_combo_must_be_unique() {
+        let mut e = GameEngine::new(RoomSettings::default()).unwrap();
+        let (avatar, color) = crate::tests::support::combo(0);
+        e.add_player(Uuid::new_v4(), "Alice".to_string(), avatar, color)
+            .unwrap();
+
+        // 完全相同的组合被拒绝。
+        assert!(e
+            .add_player(Uuid::new_v4(), "Bob".to_string(), avatar, color)
+            .is_err());
+
+        // 同形象不同颜色：允许（红色狗 vs 绿色狗）。
+        let (_, other_color) = crate::tests::support::combo(5);
+        assert!(other_color != color);
+        assert!(e
+            .add_player(Uuid::new_v4(), "Carol".to_string(), avatar, other_color)
+            .is_ok());
+
+        // 不同形象同颜色：允许。
+        let (other_avatar, _) = crate::tests::support::combo(1);
+        assert!(other_avatar != avatar);
+        assert!(e
+            .add_player(Uuid::new_v4(), "Dave".to_string(), other_avatar, color)
+            .is_ok());
     }
 
     #[test]
