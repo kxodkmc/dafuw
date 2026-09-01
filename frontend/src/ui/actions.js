@@ -157,7 +157,14 @@ function jailOrRollButtons(state, ctx, me) {
   const parts = [h('button', {
     class: 'btn primary big block',
     text: '🎲 掷骰',
-    onclick: () => ctx.client.send(cmd.rollDice()),
+    onclick: () => {
+      // 回合开始缓冲：给所有人留出阅读上一回合的时间
+      if (Date.now() < (state.rollReadyAt ?? 0)) {
+        ctx.toast('新回合刚开始，稍等片刻…', 'info');
+        return;
+      }
+      ctx.client.send(cmd.rollDice());
+    },
   })];
 
   if (me?.in_jail) {

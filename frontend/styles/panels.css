@@ -8,7 +8,7 @@
 
 .room-main {
   display: grid;
-  grid-template-columns: 1fr 350px;
+  grid-template-columns: clamp(240px, 21vw, 320px) 1fr 350px;
   gap: 0;
   min-height: 0;
 }
@@ -20,6 +20,15 @@
 }
 .board-cell .board-wrap { width: 100%; height: 100%; }
 
+/* 左列：动态/聊天，利用棋盘旁空白区 */
+.log-col {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  padding: 10px 0 10px 10px;
+}
+.log-col .log-card { flex: 1; max-height: none; overflow: hidden; }
+
 .sidebar {
   display: flex;
   flex-direction: column;
@@ -30,10 +39,39 @@
   overflow: hidden;
 }
 
+/* 卡片限高：玩家多时内部滚动，行动区过高也内部滚动 */
+.sidebar > .card {
+  flex: none;
+  min-height: 0;
+  overflow: hidden;
+}
+.sidebar > .card { max-height: 38vh; overflow-y: auto; }
+
+/* 玩家卡：标题固定，列表体内部滚动，人数再多也不撑破侧栏 */
+.sidebar > .card.players-card {
+  display: flex;
+  flex-direction: column;
+  max-height: 42vh;
+  overflow: hidden;
+}
+.players-card .players-body { flex: 1; min-height: 0; overflow-y: auto; }
+
+/* 窄窗口：棋盘在上、侧栏居中、动态在下，各自滚动，聊天不丢失 */
+@media (max-width: 960px) {
+  .room { height: auto; min-height: 100vh; overflow-y: auto; }
+  .room-main { display: flex; flex-direction: column; }
+  .board-cell { height: 56vh; flex: none; order: 1; }
+  .sidebar { order: 2; border-left: none; border-top: 1px solid var(--line); overflow: visible; }
+  .sidebar > .card { overflow-y: visible; max-height: none; }
+  .sidebar > .card.players-card { max-height: none; }
+  .players-card .players-body { overflow: visible; }
+  .log-col { order: 3; padding: 0 10px 10px; }
+  .log-col .log-card { min-height: 34vh; }
+}
+
 /* ---- 玩家列表 ---- */
 
 .player-list { display: flex; flex-direction: column; gap: 6px; }
-
 .player-card {
   display: flex;
   align-items: center;
@@ -92,6 +130,17 @@
 .log-item { color: var(--ink); }
 .log-item.sys { color: var(--ink-soft); }
 .log-item.chat { color: #1e5aa8; }
+/* 最新事件：绿底高亮 3 秒渐隐 */
+.log-item.fresh {
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-weight: 600;
+  animation: log-fresh 3s ease-out forwards;
+}
+@keyframes log-fresh {
+  0%, 55% { background: var(--accent-soft); }
+  100% { background: transparent; font-weight: 600; }
+}
 .log-item .log-ts {
   color: var(--line);
   font-family: Consolas, monospace;
@@ -138,6 +187,12 @@
   color: var(--ink-soft);
 }
 .rent-table { min-width: 200px; }
+.rent-table .cur td {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+  border-bottom: 1px solid var(--accent);
+}
 
 /* ---- 账单流水 ---- */
 

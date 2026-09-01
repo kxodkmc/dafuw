@@ -387,6 +387,9 @@ impl GameEngine {
     }
 
     /// 玩家入狱。
+    ///
+    /// 官方规则：无论何种原因入狱（踩入狱格/卡牌/三连对子），本回合立即结束，
+    /// 不享有对子带来的额外一掷——否则狱中会被强制多消耗一次出狱尝试。
     pub fn send_to_jail(&mut self, player: Uuid, events: &mut Vec<Event>) {
         let jail = self.board.jail_index();
         if let Some(p) = self.player_mut(player) {
@@ -394,6 +397,7 @@ impl GameEngine {
             p.in_jail = true;
             p.jail_turns = 0;
         }
+        self.pending_doubles = false;
         events.push(Event::WentToJail { player_id: player });
     }
 
@@ -785,7 +789,7 @@ mod tests {
             .any(|x| matches!(x, Event::PropertyBought { tile_id: 5, .. })));
         assert_eq!(e.current_player_id(), Some(other));
         assert_eq!(e.deeds.owner(5), Some(first));
-        assert_eq!(e.player_cash(first), 15_000_000 - 2_000_000);
+        assert_eq!(e.player_cash(first), 15_000_000 - 600_000);
     }
 
     #[test]
@@ -829,7 +833,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(e.deeds.owner(5), Some(first));
-        assert_eq!(e.player_cash(first), 15_000_000 - 2_000_000);
+        assert_eq!(e.player_cash(first), 15_000_000 - 2_000_000); // 拍卖成交价 2M
         assert_ne!(e.phase, Phase::InAuction);
     }
 
@@ -842,8 +846,8 @@ mod tests {
 
         let mut ev = Vec::new();
         e.advance_turn(&mut ev); // 轮到 other
-        e.deeds.assign(5, first); // first 拥有铁路 5（租金 250K）
-        e.change_cash(other, -14_990_000, "test", &mut ev); // other 只剩 100_000
+        e.deeds.assign(5, first); // first 拥有 5 号内罗毕（租金 40K）
+        e.change_cash(other, -14_970_000, "test", &mut ev); // other 只剩 30_000
 
         let events = e
             .handle(other, Command::RollDice, &mut SeqRng::new(vec![0, 3]))
@@ -864,11 +868,13 @@ mod tests {
         let (a, _b, _c) = (ids[0], ids[1], ids[2]);
         let _ = e.start(&mut SeqRng::new(vec![0])).unwrap();
 
-        // a 拥有棕组（1、3 号），在 1 号建 1 栋房，3 号抵押。
+        // a 拥有棕组（1、2、4、5 号），在 1 号建 1 栋房，2 号抵押。
         e.deeds.assign(1, a);
-        e.deeds.assign(3, a);
+        e.deeds.assign(2, a);
+        e.deeds.assign(4, a);
+        e.deeds.assign(5, a);
         let _ = e.deeds.build(&e.board, 1).unwrap();
-        let _ = e.deeds.mortgage(&e.board, 3).unwrap();
+        let _ = e.deeds.mortgage(&e.board, 2).unwrap();
         assert_eq!(e.deeds.houses_available(), 31);
 
         // 欠银行巨额债务 → 破产，地产进入拍卖。
@@ -881,62 +887,47 @@ mod tests {
         // 地块无主、房屋归还银行库存、抵押解除，进入第一场拍卖。
         assert_eq!(e.phase(), Phase::InAuction);
         assert_eq!(e.deeds.owner(1), None);
-        assert_eq!(e.deeds.owner(3), None);
+        assert_eq!(e.deeds.owner(2), None);
         assert_eq!(e.deeds.houses_available(), 32);
-        assert!(!e.deeds.is_mortgaged(3));
+        assert!(!e.deeds.is_mortgaged(2));
 
         // 中途存档/恢复应保留待拍卖队列（重启续玩）。
         let restored = GameEngine::restore(&e.archive()).unwrap();
         assert_eq!(e.archive(), restored.archive());
 
-        // 第一场（1 号）：当前竞拍者出价 $1，另一存活玩家弃权 → 成交并自动衔接下一场。
-        let bidder = e.auction_current_bidder().unwrap();
-        e.handle(
-            bidder,
-            Command::AuctionBid { amount: 1 },
-            &mut SeqRng::new(vec![0]),
-        )
-        .unwrap();
-        let passer = e.auction_current_bidder().unwrap();
-        let ev = e
-            .handle(passer, Command::AuctionPass, &mut SeqRng::new(vec![]))
+        // 四块地逐场拍卖：每场当前竞拍者出价 $1，另一存活玩家弃权 → 成交并自动衔接下一场。
+        for tile in [1, 2, 4, 5] {
+            let bidder = e.auction_current_bidder().unwrap();
+            e.handle(
+                bidder,
+                Command::AuctionBid { amount: 1 },
+                &mut SeqRng::new(vec![0]),
+            )
             .unwrap();
-        all_ev.extend(ev);
-        assert!(e.deeds.owner(1).is_some());
-        assert_eq!(e.phase(), Phase::InAuction); // 排队中的 3 号已自动开启
-
-        // 第二场（3 号）：同样流程，成交后回到掷骰阶段。
-        let bidder = e.auction_current_bidder().unwrap();
-        e.handle(
-            bidder,
-            Command::AuctionBid { amount: 1 },
-            &mut SeqRng::new(vec![0]),
-        )
-        .unwrap();
-        let passer = e.auction_current_bidder().unwrap();
-        let ev = e
-            .handle(passer, Command::AuctionPass, &mut SeqRng::new(vec![]))
-            .unwrap();
-        all_ev.extend(ev);
-        assert!(e.deeds.owner(3).is_some());
-        assert_eq!(e.phase(), Phase::AwaitRoll);
+            let passer = e.auction_current_bidder().unwrap();
+            let ev = e
+                .handle(passer, Command::AuctionPass, &mut SeqRng::new(vec![]))
+                .unwrap();
+            all_ev.extend(ev);
+            assert!(e.deeds.owner(tile).is_some(), "{tile} 号应已成交");
+        }
         assert_eq!(
             all_ev
                 .iter()
                 .filter(|x| matches!(x, Event::AuctionStarted { .. }))
                 .count(),
-            2
+            4
         );
         assert_eq!(
             all_ev
                 .iter()
                 .filter(|x| matches!(x, Event::AuctionEnded { .. }))
                 .count(),
-            2
+            4
         );
-        // 全部成交后回到掷骰阶段，两块地归存活玩家且无人破产。
+        // 全部成交后回到掷骰阶段，四块地归存活玩家且无人破产。
         assert_eq!(e.phase(), Phase::AwaitRoll);
-        for tile in [1, 3] {
+        for tile in [1, 2, 4, 5] {
             let owner = e.deeds.owner(tile).unwrap();
             assert!(!e.player(owner).unwrap().bankrupt);
         }
@@ -950,10 +941,12 @@ mod tests {
         let _ = e.start(&mut SeqRng::new(vec![0])).unwrap();
 
         e.deeds.assign(1, a);
-        e.deeds.assign(3, a);
+        e.deeds.assign(2, a);
+        e.deeds.assign(4, a);
+        e.deeds.assign(5, a);
         // 注意：测试直接操作 deeds 层建/押，不通过 do_build/do_mortgage，a 的现金不变。
         let _ = e.deeds.build(&e.board, 1).unwrap();
-        let _ = e.deeds.mortgage(&e.board, 3).unwrap();
+        let _ = e.deeds.mortgage(&e.board, 2).unwrap();
         assert_eq!(e.deeds.houses_available(), 31);
 
         // a 欠 b 巨额债务 → 破产：a 全部现金（15M）、房屋变卖所得（250K）归 b，地产移交 b。
@@ -968,8 +961,8 @@ mod tests {
         assert_eq!(e.player_cash(b), b_cash_before + 15_000_000 + 250_000);
         // 地产（含抵押状态）移交 b，房屋已变卖且库存归还。
         assert_eq!(e.deeds.owner(1), Some(b));
-        assert_eq!(e.deeds.owner(3), Some(b));
-        assert!(e.deeds.is_mortgaged(3));
+        assert_eq!(e.deeds.owner(2), Some(b));
+        assert!(e.deeds.is_mortgaged(2));
         assert_eq!(e.deeds.houses(1), 0);
         assert_eq!(e.deeds.houses_available(), 32);
         assert_ne!(e.phase(), Phase::InAuction);

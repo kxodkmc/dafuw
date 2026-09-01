@@ -1,4 +1,4 @@
-/* 棋盘：11x11 网格、地块旋转、中央面板、骰子、拍卖 */
+/* 棋盘：15x15 网格（56 格扩展世界版）、地块旋转、中央面板、骰子、拍卖 */
 
 .board-wrap {
   width: 100%;
@@ -23,12 +23,12 @@
 /* 固定像素棋盘，由 JS 按容器缩放 */
 .board {
   position: relative;
-  width: 662px;
-  height: 662px;
+  width: 878px;
+  height: 878px;
   flex: none;
   display: grid;
-  grid-template-columns: 88px repeat(9, 54px) 88px;
-  grid-template-rows: 88px repeat(9, 54px) 88px;
+  grid-template-columns: 88px repeat(13, 54px) 88px;
+  grid-template-rows: 88px repeat(13, 54px) 88px;
   background: var(--panel);
   border: 2px solid var(--ink);
   border-radius: 6px;
@@ -50,6 +50,29 @@
   0% { transform: rotate(-12deg) scale(1.08); }
   50% { transform: rotate(10deg) scale(0.94); }
   100% { transform: rotate(-12deg) scale(1.08); }
+}
+
+/* 棋子动画层：逐格移动的幽灵棋子，独立于地块重绘 */
+.fx-token-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 35;
+  pointer-events: none;
+}
+.fx-token {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2.5px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  box-shadow: 0 3px 8px rgb(0 0 0 / 35%);
+  transform: translate(-50%, -50%);
+  transition: left 0.11s ease-in-out, top 0.11s ease-in-out;
 }
 
 .tile {
@@ -173,7 +196,7 @@
 /* ---- 中央面板 ---- */
 
 .board-center {
-  grid-area: 2 / 2 / 11 / 11;
+  grid-area: 2 / 2 / 15 / 15;
   background: #dcead2;
   border: 1px solid #b9cfa9;
   border-radius: 6px;

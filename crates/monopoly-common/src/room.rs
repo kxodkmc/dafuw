@@ -56,7 +56,7 @@ impl Default for RoomSettings {
             // 官方世界版量纲：初始 15M、起薪 2M。
             initial_money: 15_000_000,
             dice_count: 2,
-            board_size: 40,
+            board_size: 56,
             go_salary: 2_000_000,
             max_rounds: None,
         }
@@ -81,8 +81,8 @@ impl RoomSettings {
         if self.go_salary == 0 {
             return Err("GO 薪水不能为 0".to_string());
         }
-        if self.board_size != 40 {
-            return Err("当前版本仅支持 40 格棋盘，自定义地图将在后续版本开放".to_string());
+        if ![40, 56].contains(&self.board_size) {
+            return Err("当前版本仅支持 40 格（经典）或 56 格（扩展）世界版棋盘".to_string());
         }
         Ok(())
     }
@@ -133,7 +133,7 @@ mod tests {
         assert_eq!(s.player_count_max, 4);
         assert_eq!(s.initial_money, 15_000_000);
         assert_eq!(s.dice_count, 2);
-        assert_eq!(s.board_size, 40);
+        assert_eq!(s.board_size, 56);
 
         // 空对象 = 全默认。
         let s: RoomSettings = serde_json::from_str("{}").unwrap();
@@ -175,6 +175,8 @@ mod tests {
         s.board_size = 80;
         assert!(s.validate().is_err());
         s.board_size = 40;
+        assert!(s.validate().is_ok());
+        s.board_size = 56;
         assert!(s.validate().is_ok());
     }
 }

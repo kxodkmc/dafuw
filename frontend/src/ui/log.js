@@ -24,8 +24,16 @@ export function renderLog(log, mountEl, opts = {}) {
   const filter = (mountEl._filter ??= 'all');
   const shown = log.filter((e) => filter === 'all' || e.kind === filter);
 
+  // 最新一条新出现时高亮 3 秒（按内容指纹判断，重绘不重播）
+  const last = shown.at(-1);
+  const key = last ? `${last.text}@${last.ts}` : '';
+  const fresh = key !== '' && key !== (mountEl._lastKey ?? '');
+  mountEl._lastKey = key;
+
   const list = h('div', { class: 'log-list' },
-    shown.map((e) => h('div', { class: `log-item ${e.kind}` }, [
+    shown.map((e, i) => h('div', {
+      class: `log-item ${e.kind}${fresh && i === shown.length - 1 ? ' fresh' : ''}`,
+    }, [
       h('span', { class: 'log-ts', text: clock(e.ts) }),
       h('span', { text: e.text }),
     ])),

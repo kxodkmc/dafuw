@@ -41,6 +41,21 @@ export function isLandedTileBuyable(state) {
   return !!tile && tile.price > 0 && !tile.owner && isBuyableKind(tile.kind);
 }
 
+/** 我的资产概览：现金 / 未抵押地价 / 可抵押金额；未入局时为 null。 */
+export function myAssets(state) {
+  const me = myPlayer(state);
+  if (!me) return null;
+  const tiles = state.snapshot.tiles.filter(
+    (t) => t.owner === me.id && isBuyableKind(t.kind),
+  );
+  const alive = tiles.filter((t) => !t.mortgaged);
+  return {
+    cash: me.cash,
+    property: alive.reduce((s, t) => s + t.price, 0),
+    mortgagable: alive.reduce((s, t) => s + (t.mortgage_value ?? 0), 0),
+  };
+}
+
 /** 名下可操作的地产（建房/抵押入口用）。 */
 export function myOwnTiles(state) {
   const me = myPlayer(state);
@@ -81,20 +96,27 @@ export function tileOwner(state, tile) {
   return state.snapshot.players.find((p) => p.id === tile.owner) ?? null;
 }
 
+/** 每边格数（含两端角格）：40 格→10，56 格→14。 */
+export function sideLen(total) {
+  return total / 4;
+}
+
 /** 地块在棋盘上的方位。 */
-export function tileSide(id) {
-  if (id <= 10) return 'bottom';
-  if (id <= 19) return 'left';
-  if (id <= 29) return 'top';
+export function tileSide(id, total = 56) {
+  const s = sideLen(total);
+  if (id <= s) return 'bottom';
+  if (id <= 2 * s) return 'left';
+  if (id <= 3 * s) return 'top';
   return 'right';
 }
 
-/** 地块在 11x11 网格中的行列（1 基）。 */
-export function gridPos(id) {
-  if (id <= 10) return { col: 11 - id, row: 11 };
-  if (id <= 19) return { col: 1, row: 21 - id };
-  if (id <= 29) return { col: id - 19, row: 1 };
-  return { col: 11, row: id - 29 };
+/** 地块在 (side+1)x(side+1) 网格中的行列（1 基）。 */
+export function gridPos(id, total = 56) {
+  const s = sideLen(total);
+  if (id <= s) return { col: s + 1 - id, row: s + 1 };
+  if (id <= 2 * s) return { col: 1, row: 2 * s + 1 - id };
+  if (id <= 3 * s) return { col: id - (2 * s - 1), row: 1 };
+  return { col: s + 1, row: id - (3 * s - 1) };
 }
 
 /** 地块类型文案（兜底未知类型）。 */

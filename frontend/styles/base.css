@@ -108,14 +108,34 @@ button { font-family: inherit; }
 
 .topbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 8px 12px;
   padding: 8px 14px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
 }
 .topbar .title { font-weight: 700; font-size: 16px; }
 .topbar .sep { color: var(--line); }
+
+/* 左上角我的资产速览 */
+.me-hud {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  white-space: nowrap;
+}
+.me-hud .me-item { display: inline-flex; align-items: baseline; gap: 3px; }
+.me-hud .k { font-size: 12px; color: var(--ink-soft); }
+.me-hud .v { font-family: Consolas, monospace; font-size: 13px; }
+.me-hud .v.cash { color: var(--accent); }
+.me-hud .v.prop { color: #1e5aa8; }
+.me-hud .v.mort { color: var(--gold); }
+.me-hud .me-sep { color: var(--line); }
 
 .conn-dot {
   width: 10px; height: 10px;

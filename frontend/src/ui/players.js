@@ -24,7 +24,7 @@ export function renderPlayers(mountEl, state) {
         if (snap.status === 'lobby') {
           tags.push(p.ready ? '✓ 已准备' : '… 未准备');
         } else {
-          if (p.in_jail) tags.push('⛓️ 狱中');
+          if (p.in_jail) tags.push(`⛓️ 狱中 ${p.jail_turns}/3`);
           if (p.out_of_jail_cards > 0) tags.push(`🎟️ ×${p.out_of_jail_cards}`);
           tags.push(`📍 格${p.position}`);
         }

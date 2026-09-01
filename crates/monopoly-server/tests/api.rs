@@ -137,7 +137,7 @@ async fn join_and_query_room() {
     assert_eq!(json["players"][0]["name"], name);
     assert_eq!(json["players"][0]["avatar"], avatar);
     assert_eq!(json["players"][0]["color"], color);
-    assert_eq!(json["tiles"].as_array().unwrap().len(), 40);
+    assert_eq!(json["tiles"].as_array().unwrap().len(), 56);
 }
 
 #[tokio::test]

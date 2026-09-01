@@ -168,6 +168,10 @@ export function mountLobby(ctx, rootEl) {
   const [diceLabel, diceInput] = numField('骰子数量', 2, 1, 3);
   const [salaryLabel, salaryInput] = numField('GO 薪水', 2000000, 1, 10000000);
   const [roundsLabel, roundsInput] = numField('限时回合(空=不限)', 0, 0, 9999);
+  const sizeSelect = h('select', { class: 'input' }, [
+    h('option', { value: '56', text: '56 格 · 扩展世界版（推荐）' }),
+    h('option', { value: '40', text: '40 格 · 经典世界版' }),
+  ]);
 
   const createBtn = h('button', {
     class: 'btn primary block span2', text: '🏠 创建房间',
@@ -188,6 +192,7 @@ export function mountLobby(ctx, rootEl) {
           initial_money: Number(moneyInput.value),
           dice_count: Number(diceInput.value),
           go_salary: Number(salaryInput.value),
+          board_size: Number(sizeSelect.value),
           max_rounds: rounds > 0 ? rounds : null,
         }, nameInput.value.trim());
         await enterRoom(Number(res.room_code), {
@@ -208,6 +213,7 @@ export function mountLobby(ctx, rootEl) {
       h('div', { class: 'form-item span2' }, [h('label', { text: nameLabel }), nameInput]),
       h('div', { class: 'form-item' }, [h('label', { text: maxLabel }), maxInput]),
       h('div', { class: 'form-item' }, [h('label', { text: moneyLabel }), moneyInput]),
+      h('div', { class: 'form-item' }, [h('label', { text: '棋盘格数' }), sizeSelect]),
       h('div', { class: 'form-item' }, [h('label', { text: diceLabel }), diceInput]),
       h('div', { class: 'form-item' }, [h('label', { text: salaryLabel }), salaryInput]),
       h('div', { class: 'form-item' }, [h('label', { text: roundsLabel }), roundsInput]),
@@ -253,6 +259,7 @@ export function mountLobby(ctx, rootEl) {
     h('div', { class: 'lobby-inner' }, [
       h('div', { class: 'lobby-hero' }, [
         h('h1', { text: '大富翁' }),
+        h('div', {}, [h('span', { class: 'hero-sub', text: 'MONOPOLY · 世界版' })]),
         h('p', { text: '自动连接服务器，建房开战或加入好友房间' }),
       ]),
       rejoinSlot,

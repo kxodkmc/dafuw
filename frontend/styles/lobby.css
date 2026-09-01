@@ -1,105 +1,269 @@
-/* 大厅：服务器连接、建房表单、加入、房间列表 */
+/* 大厅：轻度拟物风——绿呢桌面、纸质卡片、浮雕按钮、内凹输入框 */
 
 .lobby {
   height: 100vh;
   overflow-y: auto;
   display: flex;
   justify-content: center;
-  padding: 36px 16px;
+  padding: 40px 16px 48px;
+  /* 绿呢桌布：中心亮、四周暗的柔光，边缘暗角营造桌面纵深 */
+  background:
+    radial-gradient(ellipse at 50% 0%, rgb(255 255 255 / 7%), transparent 55%),
+    radial-gradient(ellipse at 50% 110%, rgb(0 0 0 / 30%), transparent 60%),
+    radial-gradient(circle at 18% 30%, rgb(255 255 255 / 4%), transparent 40%),
+    linear-gradient(160deg, #38683f, #2a5432 55%, #224528);
+  /* 背景随内容铺满，滚动时桌布不露底 */
+  background-attachment: local;
 }
 
 .lobby-inner {
-  width: 720px;
+  width: 100%;
+  max-width: 760px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
 }
 
-.lobby-hero { text-align: center; padding: 8px 0 2px; }
-.lobby-hero h1 { font-size: 30px; letter-spacing: 0.12em; }
-.lobby-hero p { color: var(--ink-soft); margin-top: 6px; }
+/* ---- 标题：金属铭牌质感 ---- */
+
+.lobby-hero { text-align: center; padding: 10px 0 4px; }
+.lobby-hero h1 {
+  display: inline-block;
+  font-size: 40px;
+  font-weight: 800;
+  letter-spacing: 0.3em;
+  text-indent: 0.3em;
+  color: #f2d98a;
+  text-shadow:
+    0 1px 0 #8a6a1f,
+    0 2px 0 #6d5217,
+    0 3px 0 #553f10,
+    0 6px 14px rgb(0 0 0 / 45%);
+}
+.lobby-hero .hero-sub {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 3px 16px;
+  border-radius: 999px;
+  font-size: 12px;
+  letter-spacing: 0.35em;
+  text-indent: 0.35em;
+  color: #d8e6cf;
+  background: rgb(0 0 0 / 22%);
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 35%);
+}
+.lobby-hero p { color: #c9d8bd; margin-top: 10px; font-size: 13px; }
+
+/* ---- 纸质卡片：顶部受光、底部投影、微微悬浮 ---- */
+
+.lobby .card {
+  position: relative;
+  border-radius: 14px;
+  border-color: #e2dac4;
+  background: linear-gradient(180deg, #fffef9, #fbf7ea);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 90%),
+    0 1px 2px rgb(0 0 0 / 12%),
+    0 6px 16px rgb(0 0 0 / 22%);
+}
+.lobby .card-title {
+  color: #8d8168;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lobby .card-title::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: inset 0 -1px 1px rgb(0 0 0 / 30%), 0 1px 0 rgb(255 255 255 / 60%);
+}
+
+/* ---- 浮雕按钮：顶部高光、底部厚度、按下下沉 ---- */
+
+.lobby .btn {
+  white-space: nowrap;
+  flex: none;
+  border-radius: 10px;
+  border-color: #cfc6ad;
+  background: linear-gradient(180deg, #ffffff, #f3edda);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 85%),
+    0 3px 0 #cfc6ad,
+    0 5px 10px rgb(0 0 0 / 18%);
+  transition: transform 0.06s, box-shadow 0.06s, filter 0.12s;
+}
+.lobby .btn:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 85%),
+    0 1px 0 #cfc6ad,
+    0 2px 5px rgb(0 0 0 / 18%);
+}
+.lobby .btn.primary {
+  border-color: #1f5324;
+  background: linear-gradient(180deg, #43a04c, #2e7d32 60%, #276d2b);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 35%),
+    0 3px 0 #1c4d20,
+    0 5px 12px rgb(0 0 0 / 28%);
+  text-shadow: 0 1px 0 rgb(0 0 0 / 25%);
+}
+.lobby .btn.primary:active:not(:disabled) {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 35%),
+    0 1px 0 #1c4d20,
+    0 2px 6px rgb(0 0 0 / 28%);
+}
+.lobby .btn.danger {
+  border-color: #8e1f1f;
+  background: linear-gradient(180deg, #e05252, #c62828 60%, #b02323);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 30%),
+    0 3px 0 #7c1a1a,
+    0 5px 12px rgb(0 0 0 / 28%);
+}
+
+/* ---- 内凹输入框 ---- */
+
+.lobby .input {
+  border-radius: 8px;
+  border-color: #d8d0ba;
+  background: #f7f2e2;
+  box-shadow:
+    inset 0 2px 3px rgb(0 0 0 / 10%),
+    0 1px 0 rgb(255 255 255 / 80%);
+}
+.lobby .input:focus {
+  border-color: var(--accent);
+  background: #fffef9;
+}
+.lobby select.input { cursor: pointer; }
 
 .lobby-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  gap: 18px;
   align-items: start;
 }
 
-.lobby-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.lobby-form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 10px; }
 .lobby-form .span2 { grid-column: span 2; }
-
-.chip-row { display: flex; gap: 6px; flex-wrap: wrap; }
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 5px 10px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: #fff;
-  cursor: pointer;
-  font-size: 13px;
-}
-.chip.selected {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  box-shadow: 0 0 0 1px var(--accent) inset;
-}
-.color-dot {
-  width: 12px; height: 12px;
-  border-radius: 50%;
-  display: inline-block;
+.lobby-form .form-item label {
+  font-weight: 600;
+  color: #7d7258;
 }
 
-.room-list { display: flex; flex-direction: column; gap: 8px; }
+/* ---- 房间列表：地契纸片 ---- */
+
+.room-list { display: flex; flex-direction: column; gap: 10px; }
 .room-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fff;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid #e2dac4;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #fffef9, #fbf7ea);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 90%),
+    0 2px 5px rgb(0 0 0 / 14%);
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+.room-row:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 90%),
+    0 4px 10px rgb(0 0 0 / 20%);
 }
 .room-row .code {
   font-family: Consolas, monospace;
   font-weight: 700;
   font-size: 16px;
   letter-spacing: 0.08em;
+  color: #3c3427;
 }
-.room-row .empty {
+.room-row .grow {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.room-row .empty,
+.room-list .empty {
   text-align: center;
-  color: var(--ink-soft);
-  padding: 18px 0;
+  color: #e4ecd9;
+  padding: 20px 0;
+  border: 1px dashed rgb(255 255 255 / 25%);
+  border-radius: 10px;
+  font-size: 13px;
 }
+
+/* ---- 加入房号输入 ---- */
 
 .join-row { display: flex; gap: 8px; }
 .join-row .input {
   flex: 1;
   font-family: Consolas, monospace;
   font-size: 18px;
-  letter-spacing: 0.35em;
+  letter-spacing: 0.3em;
   text-align: center;
 }
+.join-row .btn { padding: 8px 22px; }
 
-.server-status { margin-top: 8px; font-size: 13px; }
+.server-status { margin-top: 10px; font-size: 13px; }
+
+/* 行内表单：输入框自适应收窄，按钮不被挤压换行 */
+.lobby .row .input {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+/* ---- 回到房间横幅：描金提示牌 ---- */
 
 .rejoin-banner {
   display: flex;
   align-items: center;
   gap: 10px;
-  border-color: var(--accent);
+  border: 1px solid #b99b4d;
+  background: linear-gradient(180deg, #fff8e4, #f7ecc8);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 90%),
+    0 3px 0 #c8ab5e,
+    0 6px 16px rgb(0 0 0 / 25%);
 }
+.rejoin-banner::before { content: none; }
 
-.scan-box { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+/* ---- 扫描结果：票据风 ---- */
+
+.scan-box { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 .scan-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 10px;
-  border: 1px dashed var(--line);
-  border-radius: 8px;
-  background: #fff;
+  padding: 8px 12px;
+  border: 1px dashed #cfc6ad;
+  border-radius: 10px;
+  background: #fbf7ea;
   font-size: 13px;
+}
+
+/* 身份码预览、提示文字在深色桌面上的可读性 */
+.lobby .muted { color: #6f6754; }
+.lobby-hero .muted { color: inherit; }
+
+/* ---- 窄屏响应式：单列布局，标题收缩 ---- */
+
+@media (max-width: 820px) {
+  .lobby { padding: 24px 12px 36px; }
+  .lobby-grid { grid-template-columns: 1fr; }
+  .lobby-hero h1 { font-size: 30px; }
+  .lobby-hero p { font-size: 12px; }
+  .room-row { flex-wrap: wrap; }
+  .room-row .btn { margin-left: auto; }
 }

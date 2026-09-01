@@ -1,9 +1,9 @@
 //! 房间页：顶栏（房间信息/房主操作/离开） + 棋盘主区 + 侧栏（玩家/行动/日志）。
 //! 自身订阅 store 全量重绘；子组件各自保持轻量重建。
 
-import { h, fmtCode, copyText } from './dom.js';
+import { h, fmtMoney, fmtCode, copyText } from './dom.js';
 import { cmd, STATUS_LABELS, PHASE_LABELS } from '../protocol/types.js';
-import { isOwner } from '../state/selectors.js';
+import { isOwner, myAssets } from '../state/selectors.js';
 import { exportPlayerIdentity } from '../state/session.js';
 import { openModal } from './modal.js';
 import { renderBoard } from './board.js';
@@ -26,7 +26,7 @@ export function mountRoom(ctx, rootEl) {
 
   /* ---- 结构 ---- */
   const boardMount = h('div', { class: 'board-cell' });
-  const playersMount = h('div', {});
+  const playersMount = h('div', { class: 'players-body' });
   const actionsMount = h('div', {});
   const logMount = h('div', { class: 'card log-card' });
   const topbar = h('div', { class: 'topbar' });
@@ -34,11 +34,11 @@ export function mountRoom(ctx, rootEl) {
   const page = h('div', { class: 'room' }, [
     topbar,
     h('div', { class: 'room-main' }, [
+      h('div', { class: 'log-col' }, [logMount]),
       boardMount,
       h('div', { class: 'sidebar' }, [
-        h('div', { class: 'card' }, [playersMount]),
+        h('div', { class: 'card players-card' }, [playersMount]),
         h('div', { class: 'card' }, [actionsMount]),
-        logMount,
       ]),
     ]),
   ]);
@@ -92,6 +92,7 @@ export function mountRoom(ctx, rootEl) {
         snap?.status === 'playing'
           ? h('span', { class: 'muted', text: `第 ${snap.round} 轮 · ${PHASE_LABELS[snap.phase] ?? snap.phase}` })
           : null,
+        meHud(s),
         h('span', { class: 'grow' }),
         h('span', { class: `conn-dot ${s.connected ? 'on' : 'off'}`, title: s.connected ? '已连接' : '连接断开，重连中' }),
         h('span', { class: 'muted', text: s.connected ? '已连接' : '重连中…' }),
@@ -121,6 +122,27 @@ export function mountRoom(ctx, rootEl) {
         h('button', { class: 'btn', text: '🚪 离开', onclick: () => ctx.exitRoom() }),
       ].filter(Boolean),
     );
+  }
+
+  /** 左上角我的资产：现金 / 房产 / 可抵押，一眼分清资金结构。 */
+  function meHud(s) {
+    const a = myAssets(s);
+    if (!a) return null;
+    const item = (k, cls, v) =>
+      h('span', { class: 'me-item' }, [
+        h('span', { class: 'k', text: k }),
+        h('b', { class: `v ${cls}`, text: fmtMoney(v) }),
+      ]);
+    return h('div', {
+      class: 'me-hud',
+      title: '现金可随时动用；房产为未抵押地价合计；可抵押为抵押后可获得的资金',
+    }, [
+      item('现金', 'cash', a.cash),
+      h('span', { class: 'me-sep', text: '·' }),
+      item('房产', 'prop', a.property),
+      h('span', { class: 'me-sep', text: '·' }),
+      item('可抵押', 'mort', a.mortgagable),
+    ]);
   }
 
   /** 身份码弹窗：展示 + 复制。全局身份全房间共用，跨设备/隔天导入即回原角色。 */

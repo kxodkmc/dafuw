@@ -14,6 +14,7 @@ import { mountLobby } from './ui/lobby.js';
 import { mountRoom } from './ui/room.js';
 import * as fx from './ui/fx.js';
 import { fmtMoney } from './ui/dom.js';
+import { AVATARS, COLORS } from './protocol/types.js';
 
 /* ---- 组合根 ---- */
 
@@ -58,11 +59,17 @@ function handleEvent(tagged) {
   // 抽卡横幅需要牌堆类型：在快照刷新前从玩家所停格推断
   const deck = name === 'CardDrawn' ? inferDeck(data.player_id) : null;
 
+  // 棋子移动：先登记（早于重绘），让真实棋子在第一帧就被动画幽灵接管
+  if (name === 'PlayerMoved') fx.markMoving(data.player_id);
+
   store.applyEvent(tagged);
 
   // 特效在重绘完成后播放（定位依赖最新 DOM）
   setTimeout(() => playFx(name, data, deck), 0);
 }
+
+/** 动画结束 → 触发一次重绘，把隐藏的真实棋子归还显示。 */
+fx.setOnMoveDone(() => store.refresh());
 
 /** 事件 → 棋盘特效：飘字让资金变动在棋盘上肉眼可见（如租金扣除）。 */
 function playFx(name, d, deck) {
@@ -70,6 +77,16 @@ function playFx(name, d, deck) {
     case 'CardDrawn':
       fx.showCardBanner({ deck, text: d.card_text });
       break;
+    case 'PlayerMoved': {
+      // 棋子逐格移动：真实棋子暂隐，幽灵棋子按格走完才归还
+      const p = store.state.snapshot?.players.find((x) => x.id === d.player_id);
+      if (p) {
+        const emoji = AVATARS.find((a) => a.id === p.avatar)?.emoji ?? '❓';
+        const hex = COLORS.find((c) => c.id === p.color)?.hex ?? '#999';
+        fx.animateToken(d.player_id, d.from, d.to, { emoji, hex });
+      }
+      break;
+    }
     case 'RentPaid':
       cancelMoneyFloat([d.from, d.to]);
       fx.floatOnTile(d.tile_id, `租金 -${fmtMoney(d.amount)}`, 'neg');
@@ -101,7 +118,8 @@ function playFx(name, d, deck) {
       break;
     }
     case 'WentToJail':
-      fx.floatOnTile(10, '入狱！', 'neg');
+      // 监狱角格：40 格棋盘在 10，56 格在 14
+      fx.floatOnTile((store.state.snapshot?.tiles.length ?? 40) / 4 === 14 ? 14 : 10, '入狱！', 'neg');
       break;
     case 'BuildHouse':
       fx.floatOnTile(d.tile_id, '建房 +🏠', 'pos');

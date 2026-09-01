@@ -40,6 +40,8 @@ export function createStore() {
     log: [],
     /** 账单流水 [{ts, playerId, delta, reason}]（本局累计，开局清空） */
     ledger: [],
+    /** 回合开始缓冲：此时刻之前掷骰按钮给出提示（与服务端 1.5s 缓冲对应） */
+    rollReadyAt: 0,
   };
 
   function notify(reason) {
@@ -78,6 +80,8 @@ export function createStore() {
 
       case 'TurnStarted':
         state.dice = null;
+        // 回合缓冲：与服务端 TURN_COOLDOWN 对应，稍长 100ms 防止时钟误差
+        state.rollReadyAt = Date.now() + 1600;
         break;
       case 'DiceRolled':
         state.dice = { dice: d.dice, doubles: d.doubles, seq: ++diceSeq };
@@ -163,6 +167,11 @@ export function createStore() {
         state.connected = connected;
         notify('connected');
       }
+    },
+
+    /** 触发一次全量重绘（供特效层在动画结束后归还棋子显示）。 */
+    refresh() {
+      notify('fx');
     },
   };
 }

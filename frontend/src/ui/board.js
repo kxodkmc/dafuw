@@ -1,11 +1,11 @@
-//! 棋盘：11x11 网格布局、地块渲染、棋子层与中央面板。
-//! 固定 662px 尺寸 + 容器缩放，保证各分辨率下布局稳定。
+//! 棋盘：动态 NxN 网格布局（40/56 格自适应）、地块渲染、棋子层与中央面板。
+//! 固定像素尺寸 + 容器缩放，保证各分辨率下布局稳定。
 
 import { h, fmtMoney } from './dom.js';
 import { GROUP_COLORS, TILE_KINDS, PHASE_LABELS, AVATARS, COLORS } from '../protocol/types.js';
 import { gridPos, tileSide, currentPlayer } from '../state/selectors.js';
 import { playerName } from '../state/store.js';
-import { mountDice } from './fx.js';
+import { mountDice, rebindTokenLayer, isTokenMoving } from './fx.js';
 
 const avatarEmoji = (id) => AVATARS.find((a) => a.id === id)?.emoji ?? '❓';
 const colorHex = (id) => COLORS.find((c) => c.id === id)?.hex ?? '#999';
@@ -25,18 +25,22 @@ export function renderBoard(mountEl, state, env) {
     return;
   }
 
-  const board = h('div', { class: 'board' }, snap.tiles.map((tile) => makeTile(state, tile, env)));
+  const side = snap.tiles.length / 4;
+  const board = h('div', { class: 'board' }, snap.tiles.map((tile) => makeTile(state, tile, env, side)));
 
   const center = h('div', { class: 'board-center' }, [makeCenter(state)]);
   board.append(center);
   // 骰子层独立于重绘：挂在棋盘上，摇动动画跨渲染延续
   mountDice(board, state.dice);
+  // 棋子动画层：逐格移动的幽灵棋子跨渲染延续
+  rebindTokenLayer(board);
 
-  mountEl.replaceChildren(makeScaler(mountEl, board));
+  // 固定像素边长 = 角格 88×2 + 边格 54×(side-1)，加 24px 边框/阴影余量
+  mountEl.replaceChildren(makeScaler(mountEl, board, 88 * 2 + 54 * (side - 1) + 24));
 }
 
 /** 棋盘视图：自适应缩放 + 滚轮缩放 + 拖拽平移（双击复位）。 */
-function makeScaler(mountEl, board) {
+function makeScaler(mountEl, board, basePx) {
   const st = (mountEl._view ??= { zoom: 1, tx: 0, ty: 0 });
   const view = h('div', { class: 'board-view' }, [board]);
   const wrap = h('div', { class: 'board-wrap' }, [view]);
@@ -44,7 +48,7 @@ function makeScaler(mountEl, board) {
   const apply = () => {
     const { clientWidth: w, clientHeight: ht } = mountEl;
     if (!w || !ht) return;
-    const fit = Math.min(w / 686, ht / 686, 1.6);
+    const fit = Math.min(w / basePx, ht / basePx, 1.6);
     board.style.transform = `translate(${st.tx}px, ${st.ty}px) scale(${fit * st.zoom})`;
   };
 
@@ -103,10 +107,10 @@ function makeScaler(mountEl, board) {
 }
 
 /** 单个地块（方向化色条、房屋、抵押、所有者旗与棋子，文字全部水平可读）。 */
-function makeTile(state, tile, env) {
-  const pos = gridPos(tile.id);
-  const side = tileSide(tile.id);
-  const isCorner = tile.id % 10 === 0;
+function makeTile(state, tile, env, side) {
+  const pos = gridPos(tile.id, side * 4);
+  const dir = tileSide(tile.id, side * 4);
+  const isCorner = tile.id % side === 0;
   const kind = TILE_KINDS[tile.kind];
   const groupHex = tile.group ? GROUP_COLORS[tile.group] : null;
 
@@ -131,7 +135,7 @@ function makeTile(state, tile, env) {
     .filter((p) => p.position === tile.id)
     .map((p) => h('div', {
       class: `token${p.id === state.snapshot.current_player ? ' active' : ''}`,
-      style: `border-color:${colorHex(p.color)}`,
+      style: `border-color:${colorHex(p.color)}${isTokenMoving(p.id) ? ';visibility:hidden' : ''}`,
       title: p.name,
       text: avatarEmoji(p.avatar),
     })));
@@ -139,7 +143,7 @@ function makeTile(state, tile, env) {
   return h('div', {
     class: [
       'tile',
-      isCorner ? 'corner' : `side-${side}`,
+      isCorner ? 'corner' : `side-${dir}`,
       `kind-${tile.kind.toLowerCase()}`,
       tile.mortgaged ? 'mortgaged' : '',
     ].filter(Boolean).join(' '),

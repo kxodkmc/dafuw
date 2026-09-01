@@ -29,10 +29,10 @@ fn doubles_allow_extra_roll_without_turn_change() {
     let a = ids[0];
     e.start(&mut start_rng()).unwrap();
     force_current(&mut e, a);
-    e.player_mut(a).unwrap().position = 8; // 8 号为自己地块
-    e.deeds.assign(8, a);
+    e.player_mut(a).unwrap().position = 12; // 12 号为自己地块
+    e.deeds.assign(12, a);
 
-    // 第一次 (1,1)：8 → 10 监狱【探访】，无效果，对子再掷。
+    // 第一次 (1,1)：12 → 14 监狱【探访】，无效果，对子再掷。
     let evs = e
         .handle(a, Command::RollDice, &mut SeqRng::new(vec![0, 0]))
         .unwrap();
@@ -43,14 +43,14 @@ fn doubles_allow_extra_roll_without_turn_change() {
     assert_eq!(doubles, Some(true));
     assert_eq!(e.current_player_id(), Some(a)); // 仍 A
 
-    // 第二次 (1,1)：10 → 12 电力（空地）→ AwaitDecision。
+    // 第二次 (1,1)：14 → 16 基辅（空地）→ AwaitDecision。
     let evs = e
         .handle(a, Command::RollDice, &mut SeqRng::new(vec![0, 0]))
         .unwrap();
     assert!(evs.iter().any(|x| matches!(
         x,
         Event::DiceRolled {
-            new_position: 12,
+            new_position: 16,
             ..
         }
     )));
@@ -64,14 +64,35 @@ fn landing_on_go_to_jail_sends_player_to_jail() {
     let a = ids[0];
     e.start(&mut start_rng()).unwrap();
     force_current(&mut e, a);
-    e.player_mut(a).unwrap().position = 27;
-    // (1,2)=3 → 30 GoToJail → 入狱。
+    e.player_mut(a).unwrap().position = 39;
+    // (1,2)=3 → 42 GoToJail → 入狱。
     let evs = e
         .handle(a, Command::RollDice, &mut SeqRng::new(vec![0, 1]))
         .unwrap();
     assert!(evs.iter().any(|x| matches!(x, Event::WentToJail { .. })));
-    assert_eq!(e.player_position(a), 10);
+    assert_eq!(e.player_position(a), 14);
     assert!(e.player(a).unwrap().in_jail);
+}
+
+#[test]
+fn landing_on_go_to_jail_with_doubles_ends_turn() {
+    let (mut e, ids) = engine_with_players(2, None);
+    let a = ids[0];
+    e.start(&mut start_rng()).unwrap();
+    force_current(&mut e, a);
+    e.player_mut(a).unwrap().position = 30;
+    // (6,6)=12 → 42 GoToJail：官方规则入狱即回合结束，不给额外一掷。
+    let evs = e
+        .handle(a, Command::RollDice, &mut SeqRng::new(vec![5, 5]))
+        .unwrap();
+    assert!(evs.iter().any(|x| matches!(x, Event::WentToJail { .. })));
+    assert!(e.player(a).unwrap().in_jail);
+    assert_eq!(
+        e.current_player_id(),
+        Some(ids[1]),
+        "入狱应立即结束回合，轮到下一位玩家"
+    );
+    assert_eq!(e.phase(), Phase::AwaitRoll);
 }
 
 #[test]
@@ -144,14 +165,14 @@ fn jail_double_releases_and_moves() {
     e.start(&mut start_rng()).unwrap();
     force_current(&mut e, a);
     e.send_to_jail(a, &mut Vec::new());
-    // 狱中掷 (1,1) 对子 → 出狱并移动 10 → 12。
+    // 狱中掷 (1,1) 对子 → 出狱并移动 14 → 16。
     let evs = e
         .handle(a, Command::RollDice, &mut SeqRng::new(vec![0, 0]))
         .unwrap();
     assert!(evs.iter().any(|x| matches!(x, Event::JailReleased { .. })));
     assert!(!e.player(a).unwrap().in_jail);
-    assert_eq!(e.player_position(a), 12);
-    assert_eq!(e.phase(), Phase::AwaitDecision); // 电力公司空地可购买
+    assert_eq!(e.player_position(a), 16);
+    assert_eq!(e.phase(), Phase::AwaitDecision); // 基辅空地可购买
 }
 
 #[test]
@@ -161,10 +182,10 @@ fn income_tax_pays_higher_of_2m_or_10pct() {
     let a = ids[0];
     e.start(&mut start_rng()).unwrap();
     force_current(&mut e, a);
-    e.player_mut(a).unwrap().position = 2;
+    e.player_mut(a).unwrap().position = 4;
     let evs = e
         .handle(a, Command::RollDice, &mut SeqRng::new(vec![0, 0]))
-        .unwrap(); // (1,1) → 4 税
+        .unwrap(); // (1,1) → 6 所得税
     let tax = evs.iter().find_map(|x| match x {
         Event::TaxPaid { amount, .. } => Some(*amount),
         _ => None,
@@ -176,9 +197,9 @@ fn income_tax_pays_higher_of_2m_or_10pct() {
     let a = ids[0];
     e.start(&mut start_rng()).unwrap();
     force_current(&mut e, a);
-    e.player_mut(a).unwrap().position = 2;
+    e.player_mut(a).unwrap().position = 4;
     e.change_cash(a, 7_000_000, "test", &mut Vec::new());
-    e.deeds.assign(39, a);
+    e.deeds.assign(55, a);
     let evs = e
         .handle(a, Command::RollDice, &mut SeqRng::new(vec![0, 0]))
         .unwrap();
@@ -195,8 +216,8 @@ fn luxury_tax_is_flat_100() {
     let a = ids[0];
     e.start(&mut start_rng()).unwrap();
     force_current(&mut e, a);
-    e.player_mut(a).unwrap().position = 36;
-    // (1,1) → 38 奢侈品税。
+    e.player_mut(a).unwrap().position = 51;
+    // (1,1) → 53 超级税。
     let evs = e
         .handle(a, Command::RollDice, &mut SeqRng::new(vec![0, 0]))
         .unwrap();
@@ -214,8 +235,8 @@ fn passing_go_awards_salary() {
     let a = ids[0];
     e.start(&mut start_rng()).unwrap();
     force_current(&mut e, a);
-    e.player_mut(a).unwrap().position = 38;
-    // (1,2) → 41 % 40 = 1，跨过 GO。
+    e.player_mut(a).unwrap().position = 54;
+    // (1,2) → 57 % 56 = 1，跨过 GO。
     let evs = e
         .handle(a, Command::RollDice, &mut SeqRng::new(vec![0, 1]))
         .unwrap();
@@ -232,12 +253,12 @@ fn max_rounds_ends_game_by_net_worth() {
     e.start(&mut start_rng()).unwrap();
     // 第一圈：A、B 各掷一次非对子；绕回 A（round=1 ≥ max=1）时触发限时终局。
     let a = e.current_player_id().unwrap();
-    // (4,6)=10 → 落在 10【监狱】探访，无副作用。
-    e.handle(a, Command::RollDice, &mut SeqRng::new(vec![3, 5]))
+    // (2,4)=6 → 落在 6【所得税】，两人各缴 2M，净资产仍相同。
+    e.handle(a, Command::RollDice, &mut SeqRng::new(vec![1, 3]))
         .unwrap();
     let b = e.current_player_id().unwrap();
     let evs = e
-        .handle(b, Command::RollDice, &mut SeqRng::new(vec![3, 5]))
+        .handle(b, Command::RollDice, &mut SeqRng::new(vec![1, 3]))
         .unwrap();
     assert!(evs.iter().any(|x| matches!(x, Event::GameEnded { .. })));
     assert_eq!(e.winner().unwrap(), a, "两人净资产相同且 A 先手，应判 A 胜");
@@ -269,22 +290,22 @@ fn deterministic_seed_produces_identical_events() {
 fn snapshot_matches_engine_state() {
     let (mut e, ids) = engine_with_players(2, None);
     assert_eq!(e.snapshot().status, "lobby");
-    assert_eq!(e.snapshot().tiles.len(), 40);
+    assert_eq!(e.snapshot().tiles.len(), 56);
 
     e.start(&mut start_rng()).unwrap();
     let a = ids[0];
     force_current(&mut e, a);
-    e.player_mut(a).unwrap().position = 3;
+    e.player_mut(a).unwrap().position = 5;
     e.handle(a, Command::RollDice, &mut SeqRng::new(vec![0, 1]))
-        .unwrap(); // (1,2)=3 → 6 东京空地
+        .unwrap(); // (1,2)=3 → 8 东京空地
     e.handle(a, Command::BuyProperty, &mut SeqRng::new(vec![0]))
         .unwrap();
 
     let s = e.snapshot();
     assert_eq!(s.status, "playing");
-    assert_eq!(s.tiles[6].owner, Some(a));
+    assert_eq!(s.tiles[8].owner, Some(a));
     assert_eq!(s.players.iter().find(|p| p.id == a).unwrap().cash, 14_000_000);
-    assert_eq!(s.players.iter().find(|p| p.id == a).unwrap().position, 6);
+    assert_eq!(s.players.iter().find(|p| p.id == a).unwrap().position, 8);
     assert_eq!(s.houses_available, 32);
     assert_eq!(s.hotels_available, 12);
 }

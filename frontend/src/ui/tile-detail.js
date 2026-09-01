@@ -4,7 +4,7 @@
 import { h, fmtMoney } from './dom.js';
 import { openModal } from './modal.js';
 import { cmd, GROUP_COLORS } from '../protocol/types.js';
-import { kindLabel, tileOwner, isMyTurn, myOwnTiles } from '../state/selectors.js';
+import { kindLabel, tileOwner, myOwnTiles } from '../state/selectors.js';
 
 const BUYABLE_KINDS = new Set(['Property', 'Railroad', 'Utility']);
 
@@ -32,33 +32,50 @@ function currentRent(state, tile, diceSum = 0) {
   return monopoly ? tile.base_rent * 2 : tile.base_rent;
 }
 
-/** 租金表：Property 列空地→旅馆，Railroad 列 1~4 站，Utility 说明骰点倍数。 */
+/** 当前过路费的原因说明（仅地产；与 currentRent 同口径）。 */
+function currentRentLabel(tile, monopoly) {
+  if (tile.houses >= 5) return '当前过路费 · 旅馆';
+  if (tile.houses > 0) return `当前过路费 · ${tile.houses} 栋房屋`;
+  return monopoly ? '当前过路费 · 整套垄断 ×2' : '当前过路费';
+}
+
+/** 过路费表：仅租金梯度；有主时首行高亮当前过路费。盖房成本/抵押归信息表。 */
 function rentTable(state, tile) {
   const rows = [];
+  let cur = null;
+  const owned = !!tile.owner;
+
   if (tile.kind === 'Property') {
     const monopoly = state.snapshot.tiles
       .filter((t) => t.group === tile.group)
       .every((t) => t.owner === tile.owner);
     rows.push(
       ['空地', tile.base_rent],
-      ['空地（整套垄断）', tile.base_rent * 2],
+      ['空地 · 整套垄断 ×2', tile.base_rent * 2],
       ...tile.rent_with_house.map((r, i) => [`${i + 1} 栋房屋`, r]),
       ['旅馆', tile.hotel_rent],
     );
-    rows.push(['盖房成本', `${fmtMoney(tile.building_cost)} / 栋`]);
-    if (monopoly && tile.houses === 0) rows.push(['当前租金（垄断）', tile.base_rent * 2]);
+    if (owned) cur = [currentRentLabel(tile, monopoly), currentRent(state, tile)];
   } else if (tile.kind === 'Railroad') {
-    RAILROAD_RENTS.forEach((r, i) => rows.push([`${i + 1} 个车站`, r]));
+    RAILROAD_RENTS.forEach((r, i) => rows.push([`${i + 1} 站连锁`, r]));
+    if (owned) {
+      const n = state.snapshot.tiles.filter(
+        (t) => t.kind === 'Railroad' && t.owner === tile.owner).length;
+      cur = [`当前过路费 · ${n} 站连锁`, currentRent(state, tile)];
+    }
   } else if (tile.kind === 'Utility') {
     rows.push(
-      ['持有 1 座', '骰子点数 × $40K'],
-      ['持有 2 座', '骰子点数 × $100K'],
+      ['持有 1 座', '骰点 × $40K'],
+      ['持有 2 座', '骰点 × $100K'],
     );
   }
-  if (tile.price > 0) rows.push(['抵押可得', fmtMoney(tile.mortgage_value)]);
 
   return h('table', { class: 'detail-table rent-table' }, [
-    h('tr', {}, [h('th', { text: '租金', colspan: '2' })]),
+    h('tr', {}, [h('th', { text: '过路费（停留在该格时支付）', colspan: '2' })]),
+    cur ? h('tr', { class: 'cur' }, [
+      h('td', { text: cur[0] }),
+      h('td', { text: fmtMoney(cur[1]) }),
+    ]) : null,
     ...rows.map(([k, v]) =>
       h('tr', {}, [h('td', { text: k }), h('td', { text: typeof v === 'number' ? fmtMoney(v) : v })])),
   ]);
@@ -73,7 +90,7 @@ export function openTileDetail(ctx, tileId) {
   const tile = state.snapshot?.tiles[tileId];
   if (!tile || !BUYABLE_KINDS.has(tile.kind)) return; // 功能格：无房产信息可看
   const mine = tile.owner && tile.owner === state.me?.playerId;
-  const operable = mine && isMyTurn(state) && state.snapshot.phase === 'await_roll';
+  // 引擎不限制回合：官方规则允许任何时候盖房/抵押，落地后即使轮次流转也可操作
   const owner = tileOwner(state, tile);
 
   const act = (label, make) => h('button', {
@@ -87,16 +104,14 @@ export function openTileDetail(ctx, tileId) {
     },
   });
 
-  const ops = operable
+  const ops = mine
     ? h('div', { class: 'row' }, [
         act('🏠 盖房', () => cmd.buildHouse(tileId)),
         act('🏚️ 卖房', () => cmd.sellHouse(tileId)),
         act('🏦 抵押', () => cmd.mortgage(tileId)),
         act('💵 赎回', () => cmd.unmortgage(tileId)),
       ])
-    : h('div', { class: 'muted' }, mine
-        ? '只能在自己的回合操作此地块'
-        : '并非你的地产，不可操作');
+    : h('div', { class: 'muted', text: '并非你的地产，不可操作' });
 
   const body = h('div', { class: 'col' }, [
     h('div', { class: 'row', style: 'align-items:flex-start;gap:18px' }, [
@@ -107,7 +122,11 @@ export function openTileDetail(ctx, tileId) {
         row('价格', tile.price > 0 ? fmtMoney(tile.price) : '—'),
         row('所有者', owner ? `${owner.name}` : '无主'),
         row('建筑', tile.houses >= 5 ? '旅馆' : `${tile.houses} 栋房屋`),
+        tile.kind === 'Property'
+          ? row('盖房成本', `${fmtMoney(tile.building_cost)} / 栋`)
+          : null,
         row('抵押状态', tile.mortgaged ? '已抵押' : '正常'),
+        tile.price > 0 ? row('抵押可得', fmtMoney(tile.mortgage_value)) : null,
       ]),
       rentTable(state, tile),
     ]),

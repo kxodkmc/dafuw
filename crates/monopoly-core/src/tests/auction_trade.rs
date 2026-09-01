@@ -7,15 +7,16 @@ use uuid::Uuid;
 
 use super::support::{engine_with_players, force_current, start_rng, SeqRng};
 
-/// 造出「A 掷到空地 3，停在 AwaitDecision」的局面。
+/// 造出「A 掷到空地 10（巴塞罗那），停在 AwaitDecision」的局面。
 fn land_on_unowned(a: Uuid, e: &mut GameEngine) {
     force_current(e, a);
+    e.player_mut(a).unwrap().position = 7;
     let evs = e
         .handle(a, Command::RollDice, &mut SeqRng::new(vec![0, 1]))
-        .unwrap(); // (1,2)=3
+        .unwrap(); // (1,2)=3 → 10
     assert!(evs
         .iter()
-        .any(|x| matches!(x, Event::LandedOn { tile_id: 3, .. })));
+        .any(|x| matches!(x, Event::LandedOn { tile_id: 10, .. })));
     assert_eq!(e.phase(), Phase::AwaitDecision);
 }
 
@@ -85,8 +86,8 @@ fn auction_requires_turn_order_and_increasing_bids() {
     e.handle(b, Command::AuctionPass, &mut SeqRng::new(vec![0]))
         .unwrap();
     // B 已弃权，再无其他人可出价 → 拍卖结束，A 获胜。
-    assert_eq!(e.deeds.owner(3), Some(a));
-    assert_eq!(e.player_cash(a), 15_000_000 - 2_000_000);
+    assert_eq!(e.deeds.owner(10), Some(a));
+    assert_eq!(e.player_cash(a), 15_000_000 - 2_000_000); // 拍卖成交价 2M
     assert_ne!(e.phase(), Phase::InAuction);
 }
 
@@ -105,7 +106,7 @@ fn auction_all_pass_leaves_tile_unowned() {
     e.handle(b, Command::AuctionPass, &mut SeqRng::new(vec![0]))
         .unwrap();
 
-    assert_eq!(e.deeds.owner(3), None);
+    assert_eq!(e.deeds.owner(10), None);
     assert_ne!(e.phase(), Phase::InAuction);
     assert_eq!(e.player_cash(a), 15_000_000);
 }
@@ -125,10 +126,10 @@ fn trade_cash_for_property_flow() {
     let a = ids[0];
     let b = ids[1];
     e.deeds.assign(1, a);
-    e.deeds.assign(3, b);
+    e.deeds.assign(2, b);
     let (a0, b0) = (e.player_cash(a), e.player_cash(b));
 
-    // A 提议：现金 100 ↔ B 的 3 号地。
+    // A 提议：现金 100 ↔ B 的 2 号地。
     let evs = e
         .handle(
             a,
@@ -141,7 +142,7 @@ fn trade_cash_for_property_flow() {
                 },
                 demand: AssetList {
                     cash: 0,
-                    tiles: vec![3],
+                    tiles: vec![2],
                     out_of_jail_cards: 0,
                 },
             },
@@ -168,7 +169,7 @@ fn trade_cash_for_property_flow() {
         )
         .is_err());
 
-    // B 接受 → 3 号地归 A，现金按筹码转移。
+    // B 接受 → 2 号地归 A，现金按筹码转移。
     let evs = e
         .handle(
             b,
@@ -177,7 +178,7 @@ fn trade_cash_for_property_flow() {
         )
         .unwrap();
     assert!(evs.iter().any(|x| matches!(x, Event::TradeAccepted { .. })));
-    assert_eq!(e.deeds.owner(3), Some(a));
+    assert_eq!(e.deeds.owner(2), Some(a));
     assert_eq!(e.player_cash(a), a0 - 100);
     assert_eq!(e.player_cash(b), b0 + 100);
 }
@@ -226,9 +227,11 @@ fn trade_with_house_rejected_before_execution() {
     let (mut e, ids) = engine_with_players(2, None);
     let a = ids[0];
     let b = ids[1];
-    // B 集齐棕组并建 1 栋房 → 含房地块不可交易。
+    // B 集齐棕组（1、2、4、5）并建 1 栋房 → 含房地块不可交易。
     e.deeds.assign(1, b);
-    e.deeds.assign(3, b);
+    e.deeds.assign(2, b);
+    e.deeds.assign(4, b);
+    e.deeds.assign(5, b);
     e.deeds.build(&e.board, 1).unwrap();
     assert_eq!(e.deeds.houses(1), 1);
 

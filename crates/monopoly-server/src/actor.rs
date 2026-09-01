@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::RwLock;
+use std::time::{Duration, Instant};
 
 use tokio::sync::{broadcast, mpsc, oneshot};
 use uuid::Uuid;
@@ -94,6 +95,7 @@ pub fn spawn_actor(
             repo,
             connected: HashMap::new(),
             rng: StdRngSource::from_os_rng(),
+            roll_cooldown_until: None,
         };
         actor.run(rx).await;
     });
@@ -112,7 +114,12 @@ struct RoomActor {
     connected: HashMap<Uuid, usize>,
     /// 房间内持久随机源，保证对局可复现、可测试。
     rng: StdRngSource,
+    /// 回合切换缓冲：TurnStarted 后短暂禁止掷骰，让人看清上一回合发生了什么。
+    roll_cooldown_until: Option<Instant>,
 }
+
+/// 回合切换缓冲时长。
+const TURN_COOLDOWN: Duration = Duration::from_millis(1500);
 
 impl RoomActor {
     async fn run(&mut self, mut rx: mpsc::Receiver<ActorMsg>) {
@@ -282,6 +289,12 @@ impl RoomActor {
             .unwrap_or_default();
         match self.engine.handle(pid, cmd, &mut self.rng) {
             Ok(events) => {
+                if events
+                    .iter()
+                    .any(|e| matches!(e, Event::TurnStarted { .. }))
+                {
+                    self.roll_cooldown_until = Some(Instant::now() + TURN_COOLDOWN);
+                }
                 let _ = self.tx.send(Event::Message {
                     text: format!("「{name}」托管中，自动行动"),
                 });
@@ -418,8 +431,23 @@ impl RoomActor {
                 other => self.send_error(format!("房主不能代替玩家操作：{other:?}")),
             },
             Session::Player(pid) => {
+                // 回合缓冲：TurnStarted 后 1.5s 内不接受掷骰（托管自动行动不受限）。
+                if matches!(cmd, Command::RollDice) {
+                    if let Some(t) = self.roll_cooldown_until {
+                        if Instant::now() < t {
+                            self.send_error("新回合刚开始，稍等片刻再掷骰".to_string());
+                            return;
+                        }
+                    }
+                }
                 match self.engine.handle(pid, cmd, &mut self.rng) {
                     Ok(events) => {
+                        if events
+                            .iter()
+                            .any(|e| matches!(e, Event::TurnStarted { .. }))
+                        {
+                            self.roll_cooldown_until = Some(Instant::now() + TURN_COOLDOWN);
+                        }
                         self.broadcast_events_and_snapshot(&events);
                         // 人类行动后可能轮到断线玩家 → 继续托管推进。
                         self.auto_drive();
@@ -495,6 +523,7 @@ mod tests {
             repo: None,
             connected: HashMap::new(),
             rng: StdRngSource(StdRng::seed_from_u64(7)),
+            roll_cooldown_until: None,
         };
         (actor, tx)
     }
@@ -607,5 +636,33 @@ mod tests {
             },
         );
         assert_eq!(actor.engine.player(a).unwrap().name, "小明");
+    }
+
+    #[test]
+    fn roll_dice_blocked_during_turn_cooldown() {
+        let (mut actor, tx) = seeded_actor(None);
+        let a = actor.join(ident(1)).unwrap().player_id;
+        let b = actor.join(ident(2)).unwrap().player_id;
+        actor.command(Session::Player(a), Command::SetReady { ready: true });
+        actor.command(Session::Player(b), Command::SetReady { ready: true });
+        actor.start_game().unwrap();
+
+        // 缓冲期内：掷骰被拒绝并广播 Error。
+        actor.roll_cooldown_until = Some(Instant::now() + Duration::from_millis(1000));
+        let mut rx = tx.subscribe();
+        let cur = actor.engine.current_player_id().unwrap();
+        actor.command(Session::Player(cur), Command::RollDice);
+        let got_error = (0..10)
+            .filter_map(|_| rx.try_recv().ok())
+            .any(|e| matches!(e, Event::Error { .. }));
+        assert!(got_error, "缓冲期内掷骰应被拒绝并广播 Error");
+
+        // 缓冲期结束：掷骰放行，产生 DiceRolled。
+        actor.roll_cooldown_until = Some(Instant::now() - Duration::from_millis(1));
+        actor.command(Session::Player(cur), Command::RollDice);
+        let rolled = (0..20)
+            .filter_map(|_| rx.try_recv().ok())
+            .any(|e| matches!(e, Event::DiceRolled { .. }));
+        assert!(rolled, "缓冲期结束后掷骰应放行");
     }
 }
