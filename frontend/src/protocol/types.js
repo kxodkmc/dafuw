@@ -16,11 +16,13 @@ export const AVATARS = [
 
 /** 玩家颜色（对应 Rust Color，snake_case 序列化）。 */
 export const COLORS = [
-  { id: 'red', hex: '#e53935', label: '红色' },
+  { id: 'red', hex: '#c62828', label: '红色' },
   { id: 'yellow', hex: '#f9a825', label: '黄色' },
   { id: 'green', hex: '#43a047', label: '绿色' },
   { id: 'blue', hex: '#1e88e5', label: '蓝色' },
-  { id: 'pink', hex: '#ec407a', label: '粉色' },
+  { id: 'pink', hex: '#f06292', label: '粉色' },
+  { id: 'purple', hex: '#8e24aa', label: '紫色' },
+  { id: 'orange', hex: '#ef6c00', label: '橙色' },
 ];
 
 /** 地产色组（对应 Rust Group，PascalCase 序列化）。 */

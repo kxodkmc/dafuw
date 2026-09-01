@@ -57,11 +57,16 @@ function makeProfileForm(mountEl, state, ctx) {
       onclick: () => { draft.avatar = a.id; renderActions(mountEl, state, ctx); },
     })));
 
-  const colorChips = h('div', { class: 'chip-row' }, COLORS.map((c) =>
+  const colorChips = h('div', { class: 'swatch-row' }, COLORS.map((c) =>
     h('button', {
-      class: `chip${draft.color === c.id ? ' selected' : ''}`,
+      class: `swatch${draft.color === c.id ? ' selected' : ''}`,
+      title: c.label,
+      'aria-label': c.label,
       onclick: () => { draft.color = c.id; renderActions(mountEl, state, ctx); },
-    }, [h('span', { class: 'color-dot', style: `background:${c.hex}` }), c.label])));
+    }, [
+      h('span', { class: 'pip', style: `--sw:${c.hex}` }),
+      h('span', { class: 'sw-label', text: c.label }),
+    ])));
 
   const readyBtn = h('button', {
     class: `btn block ${me.ready ? '' : 'primary'}`,

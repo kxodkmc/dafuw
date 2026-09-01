@@ -45,16 +45,20 @@ pub enum Color {
     Green,
     Blue,
     Pink,
+    Purple,
+    Orange,
 }
 
 impl Color {
     /// 全部可选颜色（供客户端渲染选择器）。
-    pub const ALL: [Color; 5] = [
+    pub const ALL: [Color; 7] = [
         Color::Red,
         Color::Yellow,
         Color::Green,
         Color::Blue,
         Color::Pink,
+        Color::Purple,
+        Color::Orange,
     ];
 }
 
@@ -66,6 +70,8 @@ impl std::fmt::Display for Color {
             Color::Green => "绿色",
             Color::Blue => "蓝色",
             Color::Pink => "粉色",
+            Color::Purple => "紫色",
+            Color::Orange => "橙色",
         })
     }
 }
@@ -100,6 +106,6 @@ mod tests {
     #[test]
     fn invalid_variant_is_rejected() {
         assert!(serde_json::from_str::<Avatar>("\"dragon\"").is_err());
-        assert!(serde_json::from_str::<Color>("\"purple\"").is_err());
+        assert!(serde_json::from_str::<Color>("\"gold\"").is_err());
     }
 }
