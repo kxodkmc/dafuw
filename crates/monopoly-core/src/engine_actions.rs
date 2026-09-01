@@ -39,19 +39,28 @@ impl GameEngine {
         self.bankrupt(from, to, events);
     }
 
-    /// 破产清算：资产移交债权人；若债权人是银行则地产回归市场。
+    /// 破产清算（官方规则）。
+    ///
+    /// - 欠玩家：房屋/旅馆以半价变卖（所得归债权人），全部地产（含抵押状态）
+    ///   移交给债权人，出狱卡一并移交。
+    /// - 欠银行：房屋/旅馆归还银行库存、抵押解除后，全部地产立即进入拍卖。
     pub(crate) fn bankrupt(&mut self, pid: Uuid, creditor: Option<Uuid>, events: &mut Vec<Event>) {
+        let cards = self.player(pid).map(|p| p.out_of_jail_cards).unwrap_or(0);
+        if let Some(p) = self.player_mut(pid) {
+            p.out_of_jail_cards = 0;
+        }
         if let Some(cred) = creditor {
-            self.deeds.transfer_player(pid, cred);
-            let cards = self.player(pid).map(|p| p.out_of_jail_cards).unwrap_or(0);
-            if let Some(p) = self.player_mut(pid) {
-                p.out_of_jail_cards = 0;
-            }
             if let Some(p) = self.player_mut(cred) {
-                p.out_of_jail_cards += cards;
+                p.out_of_jail_cards = p.out_of_jail_cards.saturating_add(cards);
             }
+            let building_cash = self.deeds.liquidate_buildings(&self.board, pid);
+            if building_cash > 0 {
+                self.change_cash(cred, building_cash as i64, events);
+            }
+            self.deeds.transfer_player(pid, cred);
         } else {
-            self.deeds.clear_player(pid);
+            let tiles = self.deeds.clear_player(&self.board, pid);
+            self.auction_queue.extend(tiles);
         }
         if let Some(p) = self.player_mut(pid) {
             p.bankrupt = true;
@@ -77,8 +86,31 @@ impl GameEngine {
                     self.turn_ended = true;
                     self.advance_turn(events);
                 }
+                // 限时对局可能因最大回合在此结束，应先于拍卖生效。
+                if self.phase == Phase::Over {
+                    return;
+                }
+                self.start_next_auction(events);
             }
         }
+    }
+
+    /// 从待拍卖队列取出下一块地产开启拍卖；无排队地产（或竞拍者不足）则无操作。
+    fn start_next_auction(&mut self, events: &mut Vec<Event>) {
+        if self.auction.is_some() {
+            return;
+        }
+        let Some(tile) = self.auction_queue.first().copied() else {
+            return;
+        };
+        let order = self.alive_players();
+        if order.len() < 2 {
+            return;
+        }
+        self.auction_queue.remove(0);
+        self.auction = Some(Auction::new(tile, order.clone(), order[0]));
+        self.phase = Phase::InAuction;
+        events.push(Event::AuctionStarted { tile_id: tile });
     }
 
     /// 支付 $50 保释。
@@ -210,17 +242,18 @@ impl GameEngine {
         if let Some(winner) = auction.winner() {
             let amount = auction.highest_bid;
             self.pay_to(winner, None, amount, events);
-            if !self.player(winner).map(|p| p.bankrupt).unwrap_or(true) {
-                self.deeds.assign(tile, winner);
+            // 出价过高导致破产：竞得作废，地块留在市场，其资产进入后续拍卖。
+            if self.player(winner).map(|p| p.bankrupt).unwrap_or(true) {
                 events.push(Event::AuctionEnded {
                     tile_id: tile,
                     winner: Some(winner),
                     amount,
                 });
             } else {
+                self.deeds.assign(tile, winner);
                 events.push(Event::AuctionEnded {
                     tile_id: tile,
-                    winner: None,
+                    winner: Some(winner),
                     amount,
                 });
             }
@@ -231,11 +264,20 @@ impl GameEngine {
                 amount: 0,
             });
         }
-        // 拍卖中可能有人破产导致对局结束（phase 被设为 Over），不可再强行推进回合。
-        if self.phase != Phase::Over {
-            self.phase = Phase::AwaitRoll;
-            self.finish_turn_if_needed(events);
+        // 结算中可能有人破产（触发新一轮拍卖）或直接结束对局。
+        if self.phase == Phase::Over {
+            return Ok(());
         }
+        if self.auction.is_none() {
+            // 破产清算排队的地产继续逐块拍卖。
+            self.start_next_auction(events);
+        }
+        if self.auction.is_some() {
+            return Ok(());
+        }
+        // 全部拍卖结束，回到掷骰阶段并按对子/破产规则收尾。
+        self.phase = Phase::AwaitRoll;
+        self.finish_turn_if_needed(events);
         Ok(())
     }
 

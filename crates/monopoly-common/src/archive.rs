@@ -45,6 +45,8 @@ pub struct ArchiveExtra {
     pub turn_ended: bool,
     /// 进行中的银行拍卖。
     pub auction: Option<AuctionDto>,
+    /// 待拍卖的地产队列（破产清算触发，逐块拍卖）。
+    pub auction_queue: Vec<usize>,
     /// 待处理的玩家交易。
     pub pending_trades: Vec<TradeDto>,
     /// 「机会」卡组洗牌后的顺序与抽卡位置。

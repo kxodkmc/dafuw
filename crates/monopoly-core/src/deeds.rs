@@ -244,18 +244,47 @@ impl Deeds {
         }
     }
 
-    /// 把 `from` 的地产回归市场（清空房屋与抵押），返回地块列表。
-    pub fn clear_player(&mut self, from: Uuid) -> Vec<usize> {
+    /// 把 `from` 的房屋/旅馆以半价变卖并归还银行库存，返回变现金额（破产抵债用）。
+    pub fn liquidate_buildings(&mut self, board: &Board, from: Uuid) -> u32 {
+        let mut value = 0;
+        for tile in 0..self.owner.len() {
+            if self.owner[tile] == Some(from) {
+                value += self.release_buildings(board, tile);
+            }
+        }
+        value
+    }
+
+    /// 把 `from` 的地产全部回归市场：房屋归还银行库存、解除抵押、清空所有权，
+    /// 返回地块列表（银行拍卖用）。
+    pub fn clear_player(&mut self, board: &Board, from: Uuid) -> Vec<usize> {
         let mut tiles = Vec::new();
         for tile in 0..self.owner.len() {
             if self.owner[tile] == Some(from) {
+                self.release_buildings(board, tile);
                 self.owner[tile] = None;
-                self.houses[tile] = 0;
                 self.mortgaged[tile] = false;
                 tiles.push(tile);
             }
         }
         tiles
+    }
+
+    /// 把单格上的房屋/旅馆归还银行库存，返回半价变现金额，并清零该格房屋。
+    fn release_buildings(&mut self, board: &Board, tile: usize) -> u32 {
+        let h = self.houses[tile];
+        if h == 0 {
+            return 0;
+        }
+        if h >= 5 {
+            // 旅馆：回收 4 栋房 + 1 间旅馆。
+            self.houses_available += 4;
+            self.hotels_available += 1;
+        } else {
+            self.houses_available += h as u16;
+        }
+        self.houses[tile] = 0;
+        board.tile(tile).building_cost / 2
     }
 
     /// 从快照覆盖地产登记：归属 / 房屋 / 抵押，并恢复银行库存（对局恢复用）。

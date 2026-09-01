@@ -23,6 +23,7 @@ impl GameEngine {
                 pending_doubles: self.pending_doubles,
                 turn_ended: self.turn_ended,
                 auction: self.auction.as_ref().map(Auction::to_dto),
+                auction_queue: self.auction_queue.clone(),
                 pending_trades: self.pending_trades.iter().map(Trade::to_dto).collect(),
                 chance_order: self.chance.order_clone(),
                 chance_draw_index: self.chance.draw_index(),
@@ -67,6 +68,7 @@ impl GameEngine {
         self.pending_doubles = extra.pending_doubles;
         self.turn_ended = extra.turn_ended;
         self.auction = extra.auction.as_ref().map(Auction::restore);
+        self.auction_queue = extra.auction_queue.clone();
         self.pending_trades = extra.pending_trades.iter().map(Trade::restore).collect();
     }
 }
