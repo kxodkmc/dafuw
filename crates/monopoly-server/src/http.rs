@@ -13,7 +13,7 @@ use monopoly_common::event::Event;
 use monopoly_common::room::{RoomCode, RoomSettings, RoomSummary};
 use monopoly_common::snapshot::GameStateDto;
 
-use crate::actor::JoinResult;
+use crate::actor::{JoinResult, PlayerIdentity};
 use crate::app::AppState;
 use crate::error::{ApiError, ApiResult};
 
@@ -33,12 +33,21 @@ pub struct CreateRoomRes {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct JoinReq {}
+pub struct JoinReq {
+    /// 全局玩家身份（可选；不提供则服务器代生成并随响应返回）。
+    #[serde(default)]
+    pub player_uid: Option<Uuid>,
+    #[serde(default)]
+    pub secret: Option<Uuid>,
+}
 
 #[derive(Debug, Serialize)]
 pub struct JoinRes {
     pub player_id: Uuid,
     pub player_token: String,
+    /// 本请求生效的全局身份（与请求一致，或服务器代生成）。
+    pub player_uid: Uuid,
+    pub secret: Uuid,
     /// 系统随机分配的昵称。
     pub name: String,
     /// 系统随机分配的形象。
@@ -110,26 +119,70 @@ pub async fn list_rooms(
     Ok(Json(out))
 }
 
+/// 解析/登记全局玩家身份：已有映射严格校验 secret；未登记的先到先得。
+fn resolve_identity(
+    state: &AppState,
+    player_uid: Option<Uuid>,
+    secret: Option<Uuid>,
+) -> Result<PlayerIdentity, ApiError> {
+    match (player_uid, secret) {
+        (Some(uid), Some(sec)) => {
+            let mut map = state
+                .identities
+                .write()
+                .unwrap_or_else(|e| e.into_inner());
+            match map.get(&uid) {
+                Some(registered) if *registered != sec => {
+                    Err(ApiError::forbidden("身份码校验失败"))
+                }
+                Some(_) => Ok(PlayerIdentity { player_uid: uid, secret: sec }),
+                None => {
+                    map.insert(uid, sec);
+                    Ok(PlayerIdentity { player_uid: uid, secret: sec })
+                }
+            }
+        }
+        // 未提供身份：服务器代生成并登记
+        _ => {
+            let uid = Uuid::new_v4();
+            let sec = Uuid::new_v4();
+            state
+                .identities
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(uid, sec);
+            Ok(PlayerIdentity { player_uid: uid, secret: sec })
+        }
+    }
+}
+
 /// 加入房间（入座）：系统随机分配昵称/形象/颜色，返回玩家 ID、令牌与分配结果。
+///
+/// 携带全局身份（player_uid + secret）时：同 uid 再次加入任意房间即认领原座位，
+/// 跨天/重进/换设备均可恢复原角色。
 pub async fn join_room(
     State(state): State<AppState>,
     Path(code): Path<RoomCode>,
-    Json(_req): Json<JoinReq>,
+    Json(req): Json<JoinReq>,
 ) -> ApiResult<Json<JoinRes>> {
     let handle = state
         .manager
         .get(code)
         .ok_or_else(|| ApiError::not_found("房间"))?;
+    let identity = resolve_identity(&state, req.player_uid, req.secret)?;
     let JoinResult {
         player_id,
         token,
         name,
         avatar,
         color,
-    } = handle.request_join().await?;
+        secret,
+    } = handle.request_join(identity).await?;
     Ok(Json(JoinRes {
         player_id,
         player_token: token,
+        player_uid: identity.player_uid,
+        secret,
         name,
         avatar,
         color,

@@ -85,7 +85,7 @@ fn pay_bail_releases_from_jail_with_50() {
         .unwrap();
     assert!(evs.iter().any(|x| matches!(x, Event::JailReleased { .. })));
     assert!(!e.player(a).unwrap().in_jail);
-    assert_eq!(e.player_cash(a), 1450);
+    assert_eq!(e.player_cash(a), 14_500_000);
 }
 
 #[test]
@@ -133,8 +133,8 @@ fn forced_bail_after_three_jail_turns() {
         }
     }
     assert!(!e.player(a).unwrap().in_jail);
-    assert_eq!(e.player_cash(a), 1450);
-    // 200 < salary 不影响：保释扣 50。
+    assert_eq!(e.player_cash(a), 14_500_000);
+    // 现金充足：保释扣 500K。
 }
 
 #[test]
@@ -155,8 +155,8 @@ fn jail_double_releases_and_moves() {
 }
 
 #[test]
-fn income_tax_pays_higher_of_200_or_10pct() {
-    // 200 分支（资产 1500，10% 仅 150）。
+fn income_tax_pays_higher_of_2m_or_10pct() {
+    // 2M 分支（资产 15M，10% 仅 1.5M）。
     let (mut e, ids) = engine_with_players(2, None);
     let a = ids[0];
     e.start(&mut start_rng()).unwrap();
@@ -169,15 +169,15 @@ fn income_tax_pays_higher_of_200_or_10pct() {
         Event::TaxPaid { amount, .. } => Some(*amount),
         _ => None,
     });
-    assert_eq!(tax, Some(200));
+    assert_eq!(tax, Some(2_000_000));
 
-    // 10% 分支：现金 2200 + 五月花 400 = 2600 → 260 > 200。
+    // 10% 分支：现金 22M + 蒙特利尔 4M = 26M → 2.6M > 2M。
     let (mut e, ids) = engine_with_players(2, None);
     let a = ids[0];
     e.start(&mut start_rng()).unwrap();
     force_current(&mut e, a);
     e.player_mut(a).unwrap().position = 2;
-    e.change_cash(a, 700, &mut Vec::new());
+    e.change_cash(a, 7_000_000, "test", &mut Vec::new());
     e.deeds.assign(39, a);
     let evs = e
         .handle(a, Command::RollDice, &mut SeqRng::new(vec![0, 0]))
@@ -186,7 +186,7 @@ fn income_tax_pays_higher_of_200_or_10pct() {
         Event::TaxPaid { amount, .. } => Some(*amount),
         _ => None,
     });
-    assert_eq!(tax, Some(260));
+    assert_eq!(tax, Some(2_600_000));
 }
 
 #[test]
@@ -204,8 +204,8 @@ fn luxury_tax_is_flat_100() {
         Event::TaxPaid { amount, .. } => Some(*amount),
         _ => None,
     });
-    assert_eq!(tax, Some(100));
-    assert_eq!(e.player_cash(a), 1400);
+    assert_eq!(tax, Some(1_000_000));
+    assert_eq!(e.player_cash(a), 14_000_000);
 }
 
 #[test]
@@ -221,9 +221,9 @@ fn passing_go_awards_salary() {
         .unwrap();
     assert!(evs
         .iter()
-        .any(|x| matches!(x, Event::PassedGo { salary: 200, .. })));
+        .any(|x| matches!(x, Event::PassedGo { salary: 2_000_000, .. })));
     assert_eq!(e.player_position(a), 1);
-    assert_eq!(e.player_cash(a), 1700);
+    assert_eq!(e.player_cash(a), 17_000_000);
 }
 
 #[test]
@@ -276,14 +276,14 @@ fn snapshot_matches_engine_state() {
     force_current(&mut e, a);
     e.player_mut(a).unwrap().position = 3;
     e.handle(a, Command::RollDice, &mut SeqRng::new(vec![0, 1]))
-        .unwrap(); // (1,2)=3 → 6 东方大道空地
+        .unwrap(); // (1,2)=3 → 6 东京空地
     e.handle(a, Command::BuyProperty, &mut SeqRng::new(vec![0]))
         .unwrap();
 
     let s = e.snapshot();
     assert_eq!(s.status, "playing");
     assert_eq!(s.tiles[6].owner, Some(a));
-    assert_eq!(s.players.iter().find(|p| p.id == a).unwrap().cash, 1400);
+    assert_eq!(s.players.iter().find(|p| p.id == a).unwrap().cash, 14_000_000);
     assert_eq!(s.players.iter().find(|p| p.id == a).unwrap().position, 6);
     assert_eq!(s.houses_available, 32);
     assert_eq!(s.hotels_available, 12);
@@ -295,6 +295,6 @@ fn owning_no_land_and_no_cash_is_allowed_state() {
     let (mut e, ids) = engine_with_players(2, None);
     let a = ids[0];
     e.start(&mut start_rng()).unwrap();
-    assert_eq!(e.net_worth(a), 1500);
+    assert_eq!(e.net_worth(a), 15_000_000);
     let _ = GameEngine::new(Default::default()).unwrap();
 }

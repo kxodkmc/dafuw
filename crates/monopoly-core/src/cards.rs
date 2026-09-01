@@ -110,49 +110,49 @@ impl Deck {
         }
     }
 
-    /// 标准「机会」卡组。
+    /// 标准「机会」卡组（官方世界版量纲）。
     pub fn chance() -> Self {
         Self::new(vec![
             card(1, "前进至起点 GO，领取薪水", CardEffect::MoveTo(0)),
             card(2, "退回 3 格", CardEffect::MoveBy(-3)),
             card(3, "前往最近的铁路", CardEffect::NearestRailroad),
-            card(4, "银行错误，得 $200", CardEffect::Collect(200)),
+            card(4, "银行错误，得 $2M", CardEffect::Collect(2_000_000)),
             card(
                 5,
-                "房屋维修：每栋房 $25，每间旅馆 $100",
+                "房屋维修：每栋房 $250K，每间旅馆 $1M",
                 CardEffect::HouseRepair {
-                    per_house: 25,
-                    per_hotel: 100,
+                    per_house: 250_000,
+                    per_hotel: 1_000_000,
                 },
             ),
             card(6, "立即入狱", CardEffect::GoToJail),
             card(7, "前往最近的公用事业", CardEffect::NearestUtility),
             card(8, "获得出狱卡", CardEffect::GetOutOfJail),
-            card(9, "每位玩家向你支付 $50", CardEffect::CollectFromEach(50)),
-            card(10, "支付学费 $150", CardEffect::Pay(150)),
+            card(9, "每位玩家向你支付 $500K", CardEffect::CollectFromEach(500_000)),
+            card(10, "支付学费 $1.5M", CardEffect::Pay(1_500_000)),
         ])
     }
 
-    /// 标准「命运」卡组。
+    /// 标准「命运」卡组（官方世界版量纲）。
     pub fn fate() -> Self {
         Self::new(vec![
             card(11, "退回起点 GO", CardEffect::MoveTo(0)),
             card(12, "立即入狱", CardEffect::GoToJail),
             card(13, "获得出狱卡", CardEffect::GetOutOfJail),
-            card(14, "缴税 $100", CardEffect::Pay(100)),
-            card(15, "银行付你股息 $50", CardEffect::Collect(50)),
-            card(16, "每位玩家向你支付 $50", CardEffect::CollectFromEach(50)),
-            card(17, "你向每位玩家支付 $50", CardEffect::PayEach(50)),
+            card(14, "缴税 $1M", CardEffect::Pay(1_000_000)),
+            card(15, "银行付你股息 $500K", CardEffect::Collect(500_000)),
+            card(16, "每位玩家向你支付 $500K", CardEffect::CollectFromEach(500_000)),
+            card(17, "你向每位玩家支付 $500K", CardEffect::PayEach(500_000)),
             card(
                 18,
-                "房屋维修：每栋房 $40，每间旅馆 $115",
+                "房屋维修：每栋房 $400K，每间旅馆 $1.15M",
                 CardEffect::HouseRepair {
-                    per_house: 40,
-                    per_hotel: 115,
+                    per_house: 400_000,
+                    per_hotel: 1_150_000,
                 },
             ),
             card(19, "前进 3 格", CardEffect::MoveBy(3)),
-            card(20, "遗产所得 $100", CardEffect::Collect(100)),
+            card(20, "遗产所得 $1M", CardEffect::Collect(1_000_000)),
         ])
     }
 }

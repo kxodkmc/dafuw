@@ -9,8 +9,16 @@ use std::time::Duration;
 use monopoly_common::command::Command;
 use monopoly_common::room::RoomSettings;
 use monopoly_persistence::{GameRepository, InMemoryRepository};
-use monopoly_server::actor::Session;
+use monopoly_server::actor::{PlayerIdentity, Session};
 use monopoly_server::room_manager::RoomManager;
+
+/// 测试用全局身份：n 不同即身份不同。
+fn ident(n: u128) -> PlayerIdentity {
+    PlayerIdentity {
+        player_uid: uuid::Uuid::from_u128(n),
+        secret: uuid::Uuid::from_u128(n + 10_000),
+    }
+}
 
 /// 等待指定对局落盘（Actor 在回复后异步写库）。
 async fn wait_saved(repo: &Arc<InMemoryRepository>, code: u32, status: &str) {
@@ -42,9 +50,9 @@ async fn restore_room_and_continue_with_same_tokens() {
     let (code, owner_token) = manager.create(settings).unwrap();
     let handle = manager.get(code).expect("房间应存在");
 
-    let a = handle.request_join().await.unwrap();
+    let a = handle.request_join(ident(1)).await.unwrap();
     let (a_id, a_token) = (a.player_id, a.token);
-    let b = handle.request_join().await.unwrap();
+    let b = handle.request_join(ident(2)).await.unwrap();
     let b_token = b.token;
     // 双方就绪后才能开局。
     handle

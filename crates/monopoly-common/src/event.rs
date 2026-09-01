@@ -159,6 +159,8 @@ pub enum Event {
     MoneyChanged {
         player_id: Uuid,
         delta: i64,
+        /// 资金用途（账单流水展示）：如「租金·上海」「购地·雅典」「经过起点」。
+        reason: String,
     },
     PlayerBroke {
         player_id: Uuid,

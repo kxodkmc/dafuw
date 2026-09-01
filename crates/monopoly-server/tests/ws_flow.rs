@@ -318,7 +318,7 @@ async fn ws_disconnected_player_is_autopiloted() {
         let Some(bob) = snap.players.iter().find(|p| p.name == name_b) else {
             break;
         };
-        if bob.position > 0 || bob.cash < 1500 {
+        if bob.position > 0 || bob.cash < 15_000_000 {
             saw_bob_moved = true;
             break;
         }

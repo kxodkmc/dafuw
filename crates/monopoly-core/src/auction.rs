@@ -102,6 +102,11 @@ impl Auction {
         self.current()
     }
 
+    /// 已弃权玩家列表（快照用）。
+    pub fn passed_players(&self) -> &[Uuid] {
+        &self.passed
+    }
+
     /// 导出拍卖中间状态（对局存档用）。
     pub(crate) fn to_dto(&self) -> AuctionDto {
         AuctionDto {

@@ -2,7 +2,7 @@ use monopoly_common::avatar::{Avatar, Color};
 use monopoly_common::command::Command;
 use monopoly_common::event::{Event, PlayerRank};
 use monopoly_common::room::RoomSettings;
-use monopoly_common::snapshot::{GameStateDto, PlayerDto, TileDto};
+use monopoly_common::snapshot::{AuctionStateDto, GameStateDto, PlayerDto, TileDto};
 use uuid::Uuid;
 
 use crate::auction::Auction;
@@ -285,6 +285,9 @@ impl GameEngine {
             Command::StartGame => {
                 return Err("开局请由房主在房间层发起".into());
             }
+            Command::Chat { .. } => {
+                return Err("聊天指令应由房间层处理".into());
+            }
         }
         Ok(events)
     }
@@ -363,7 +366,7 @@ impl GameEngine {
     // ---------- 资金与状态变更 ----------
 
     /// 变更现金并产出事件；返回变更后余额。
-    pub fn change_cash(&mut self, player: Uuid, delta: i64, events: &mut Vec<Event>) -> i64 {
+    pub fn change_cash(&mut self, player: Uuid, delta: i64, reason: &str, events: &mut Vec<Event>) -> i64 {
         let cash = if let Some(p) = self.player_mut(player) {
             p.cash += delta;
             p.cash
@@ -373,6 +376,7 @@ impl GameEngine {
         events.push(Event::MoneyChanged {
             player_id: player,
             delta,
+            reason: reason.to_string(),
         });
         cash
     }
@@ -490,6 +494,11 @@ impl GameEngine {
                 owner: self.deeds.owner(t.id),
                 houses: self.deeds.houses(t.id),
                 mortgaged: self.deeds.is_mortgaged(t.id),
+                base_rent: t.base_rent,
+                rent_with_house: t.rent_with_house.to_vec(),
+                hotel_rent: t.hotel_rent,
+                building_cost: t.building_cost,
+                mortgage_value: t.mortgage_value,
             })
             .collect();
         let players = self
@@ -517,6 +526,13 @@ impl GameEngine {
             Phase::AwaitDecision => ("playing", "decision"),
             Phase::InAuction => ("playing", "auction"),
         };
+        let auction = self.auction.as_ref().map(|a| AuctionStateDto {
+            tile_id: a.tile_id,
+            highest_bid: a.highest_bid,
+            highest_bidder: a.highest_bidder,
+            current_bidder: a.current_bidder(),
+            passed: a.passed_players().to_vec(),
+        });
         GameStateDto {
             status: status.to_string(),
             current_player: self.current_player_id(),
@@ -530,6 +546,7 @@ impl GameEngine {
             players,
             winner: self.winner,
             round: self.round,
+            auction,
         }
     }
 }
@@ -768,7 +785,7 @@ mod tests {
             .any(|x| matches!(x, Event::PropertyBought { tile_id: 5, .. })));
         assert_eq!(e.current_player_id(), Some(other));
         assert_eq!(e.deeds.owner(5), Some(first));
-        assert_eq!(e.player_cash(first), 1500 - 200);
+        assert_eq!(e.player_cash(first), 15_000_000 - 2_000_000);
     }
 
     #[test]
@@ -789,21 +806,21 @@ mod tests {
         let _ = e
             .handle(
                 first,
-                Command::AuctionBid { amount: 100 },
+                Command::AuctionBid { amount: 1_000_000 },
                 &mut SeqRng::new(vec![]),
             )
             .unwrap();
         let _ = e
             .handle(
                 other,
-                Command::AuctionBid { amount: 150 },
+                Command::AuctionBid { amount: 1_500_000 },
                 &mut SeqRng::new(vec![]),
             )
             .unwrap();
         let _ = e
             .handle(
                 first,
-                Command::AuctionBid { amount: 200 },
+                Command::AuctionBid { amount: 2_000_000 },
                 &mut SeqRng::new(vec![]),
             )
             .unwrap();
@@ -812,7 +829,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(e.deeds.owner(5), Some(first));
-        assert_eq!(e.player_cash(first), 1500 - 200);
+        assert_eq!(e.player_cash(first), 15_000_000 - 2_000_000);
         assert_ne!(e.phase, Phase::InAuction);
     }
 
@@ -825,8 +842,8 @@ mod tests {
 
         let mut ev = Vec::new();
         e.advance_turn(&mut ev); // 轮到 other
-        e.deeds.assign(5, first); // first 拥有铁路 5（租金 25）
-        e.change_cash(other, -1490, &mut ev); // other 只剩 10
+        e.deeds.assign(5, first); // first 拥有铁路 5（租金 250K）
+        e.change_cash(other, -14_990_000, "test", &mut ev); // other 只剩 100_000
 
         let events = e
             .handle(other, Command::RollDice, &mut SeqRng::new(vec![0, 3]))
@@ -856,7 +873,7 @@ mod tests {
 
         // 欠银行巨额债务 → 破产，地产进入拍卖。
         let mut all_ev = Vec::new();
-        e.pay_to(a, None, 100_000, &mut all_ev);
+        e.pay_to(a, None, 20_000_000, "test", &mut all_ev);
         assert!(e.player(a).unwrap().bankrupt);
         assert!(all_ev
             .iter()
@@ -939,16 +956,16 @@ mod tests {
         let _ = e.deeds.mortgage(&e.board, 3).unwrap();
         assert_eq!(e.deeds.houses_available(), 31);
 
-        // a 欠 b 巨额债务 → 破产：a 全部现金（1500）、房屋变卖所得（25）归 b，地产移交 b。
+        // a 欠 b 巨额债务 → 破产：a 全部现金（15M）、房屋变卖所得（250K）归 b，地产移交 b。
         let b_cash_before = e.player_cash(b);
         let mut ev = Vec::new();
-        e.pay_to(a, Some(b), 100_000, &mut ev);
+        e.pay_to(a, Some(b), 20_000_000, "test", &mut ev);
 
         assert!(e.player(a).unwrap().bankrupt);
         assert_eq!(e.player_cash(a), 0);
         assert!(ev.iter().any(|x| matches!(x, Event::PlayerBroke { .. })));
         assert!(!ev.iter().any(|x| matches!(x, Event::AuctionStarted { .. })));
-        assert_eq!(e.player_cash(b), b_cash_before + 1500 + 25);
+        assert_eq!(e.player_cash(b), b_cash_before + 15_000_000 + 250_000);
         // 地产（含抵押状态）移交 b，房屋已变卖且库存归还。
         assert_eq!(e.deeds.owner(1), Some(b));
         assert_eq!(e.deeds.owner(3), Some(b));

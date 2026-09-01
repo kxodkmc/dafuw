@@ -7,8 +7,8 @@ use crate::board::{Board, Group, TileKind};
 pub const DEFAULT_HOUSES: u16 = 32;
 pub const DEFAULT_HOTELS: u16 = 12;
 
-/// 铁路按持有条数收租：1/2/3/4 条。
-const RAILROAD_RENTS: [u32; 4] = [25, 50, 100, 200];
+/// 铁路按持有条数收租：1/2/3/4 条（官方世界版量纲）。
+const RAILROAD_RENTS: [u32; 4] = [250_000, 500_000, 1_000_000, 2_000_000];
 
 /// 地产登记簿：所有权、房屋、抵押状态，以及租金/建设/抵押等规则计算。
 #[derive(Debug, Clone)]
@@ -200,10 +200,11 @@ impl Deeds {
             }
             TileKind::Utility => {
                 let n = self.utility_count(board, owner);
+                // 官方世界版：掷骰点数 ×4×10K，两所全占 ×10×10K。
                 if n >= 2 {
-                    dice_sum * 10
+                    dice_sum * 100_000
                 } else {
-                    dice_sum * 4
+                    dice_sum * 40_000
                 }
             }
             TileKind::Property => {
@@ -334,22 +335,22 @@ impl Deeds {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::board::classic_board;
+    use crate::board::world_board;
     use uuid::Uuid;
 
     fn deeds() -> Deeds {
-        Deeds::new(classic_board().len(), DEFAULT_HOUSES, DEFAULT_HOTELS)
+        Deeds::new(world_board().len(), DEFAULT_HOUSES, DEFAULT_HOTELS)
     }
 
     #[test]
     fn even_build_rule() {
-        let board = classic_board();
+        let board = world_board();
         let mut d = deeds();
         let p = Uuid::new_v4();
         d.assign(1, p);
         d.assign(3, p); // 集齐棕组
         assert!(d.can_build(&board, 1).is_ok());
-        assert_eq!(d.build(&board, 1).unwrap(), 50);
+        assert_eq!(d.build(&board, 1).unwrap(), 500_000);
         // 3 号还没建，1 号不能再建第二栋
         assert!(d.can_build(&board, 1).is_err());
         d.build(&board, 3).unwrap();
@@ -359,44 +360,88 @@ mod tests {
 
     #[test]
     fn monopoly_doubles_rent() {
-        let board = classic_board();
+        let board = world_board();
         let mut d = deeds();
         let p = Uuid::new_v4();
         d.assign(1, p);
         // 未垄断：原价
-        assert_eq!(d.rent(&board, 1, 0), 2);
+        assert_eq!(d.rent(&board, 1, 0), 20_000);
         // 集齐棕组：翻倍
         d.assign(3, p);
-        assert_eq!(d.rent(&board, 1, 0), 4);
+        assert_eq!(d.rent(&board, 1, 0), 40_000);
         // 1 栋房
         d.build(&board, 1).unwrap();
-        assert_eq!(d.rent(&board, 1, 0), 10);
+        assert_eq!(d.rent(&board, 1, 0), 100_000);
+    }
+
+    #[test]
+    fn hotel_full_flow() {
+        let board = world_board();
+        let mut d = deeds();
+        let p = Uuid::new_v4();
+        d.assign(1, p);
+        d.assign(3, p);
+
+        // 未垄断/未集齐前无法在抵押态建；先验证均匀建到 4 栋
+        for _ in 0..4 {
+            d.build(&board, 1).unwrap();
+            d.build(&board, 3).unwrap();
+        }
+        assert_eq!(d.houses(1), 4);
+        let rent_4 = d.rent(&board, 1, 0);
+
+        // 第 5 次 → 升级旅馆（houses=5），租金取 hotel_rent
+        d.build(&board, 1).unwrap();
+        assert_eq!(d.houses(1), 5);
+        assert_eq!(d.rent(&board, 1, 0), board.tile(1).hotel_rent);
+        assert_ne!(rent_4, board.tile(1).hotel_rent);
+        assert!(d.can_build(&board, 1).is_err()); // 已建满
+
+        // 有房时不能抵押
+        assert!(d.mortgage(&board, 1).is_err());
+
+        // 卖旅馆 → 回退 4 栋房，回收 1 旅馆库存
+        let refund = d.sell_house(&board, 1).unwrap();
+        assert_eq!(refund, board.tile(1).building_cost / 2);
+        assert_eq!(d.houses(1), 4);
+    }
+
+    #[test]
+    fn mortgage_blocks_build() {
+        let board = world_board();
+        let mut d = deeds();
+        let p = Uuid::new_v4();
+        d.assign(1, p);
+        d.assign(3, p);
+        d.mortgage(&board, 1).unwrap();
+        // 抵押地块不能建房（不收租的拦截在引擎调用方 engine_resolve）
+        assert!(d.can_build(&board, 1).is_err());
     }
 
     #[test]
     fn railroad_and_utility_rent() {
-        let board = classic_board();
+        let board = world_board();
         let mut d = deeds();
         let p = Uuid::new_v4();
-        d.assign(5, p); // 国王十字车站
-        assert_eq!(d.rent(&board, 5, 0), 25);
+        d.assign(5, p); // 大富翁铁路
+        assert_eq!(d.rent(&board, 5, 0), 250_000);
         d.assign(15, p);
-        assert_eq!(d.rent(&board, 5, 0), 50);
-        d.assign(12, p); // 电力公司
-        assert_eq!(d.rent(&board, 12, 7), 7 * 4);
-        d.assign(28, p); // 水厂 → 两公用事业 10 倍
-        assert_eq!(d.rent(&board, 12, 7), 7 * 10);
+        assert_eq!(d.rent(&board, 5, 0), 500_000);
+        d.assign(12, p); // 太阳能电站
+        assert_eq!(d.rent(&board, 12, 7), 7 * 40_000);
+        d.assign(28, p); // 风能电站 → 两所全占 10 倍
+        assert_eq!(d.rent(&board, 12, 7), 7 * 100_000);
     }
 
     #[test]
     fn mortgage_flow() {
-        let board = classic_board();
+        let board = world_board();
         let mut d = deeds();
         let p = Uuid::new_v4();
         d.assign(1, p);
-        assert_eq!(d.mortgage(&board, 1).unwrap(), 30);
+        assert_eq!(d.mortgage(&board, 1).unwrap(), 300_000);
         assert!(d.is_mortgaged(1));
-        assert_eq!(d.unmortgage(&board, 1).unwrap(), 33); // 30 + 10%
+        assert_eq!(d.unmortgage(&board, 1).unwrap(), 330_000); // 300K + 10%
         assert!(!d.is_mortgaged(1));
     }
 }

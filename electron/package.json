@@ -1,0 +1,15 @@
+{
+  "name": "dafuw-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "大富翁桌面客户端（Electron 壳，加载 ../frontend）",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "node ../scripts/pack.mjs",
+    "pack:fast": "node ../scripts/pack.mjs --fast"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}

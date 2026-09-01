@@ -58,4 +58,6 @@ pub enum Command {
     },
     /// 大厅中标记/取消准备就绪。
     SetReady { ready: bool },
+    /// 房间内发送聊天消息（房间层处理，不进引擎）。
+    Chat { text: String },
 }

@@ -1,6 +1,11 @@
 # Rust 构建产物
 /target
 
+# Node 依赖与 Electron 构建产物
+node_modules/
+/dist
+electron/dist/
+
 # 编辑器 / 系统文件
 .DS_Store
 *.swp

@@ -16,6 +16,7 @@ impl GameEngine {
         from: Uuid,
         to: Option<Uuid>,
         amount: u32,
+        reason: &str,
         events: &mut Vec<Event>,
     ) {
         if amount == 0 {
@@ -23,17 +24,17 @@ impl GameEngine {
         }
         let cash = self.player_cash(from);
         if cash >= amount as i64 {
-            self.change_cash(from, -(amount as i64), events);
+            self.change_cash(from, -(amount as i64), reason, events);
             if let Some(t) = to {
-                self.change_cash(t, amount as i64, events);
+                self.change_cash(t, amount as i64, reason, events);
             }
             return;
         }
         // 资金不足：尽力支付后破产，全部资产移交给债权人。
         if cash > 0 {
-            self.change_cash(from, -cash, events);
+            self.change_cash(from, -cash, reason, events);
             if let Some(t) = to {
-                self.change_cash(t, cash, events);
+                self.change_cash(t, cash, reason, events);
             }
         }
         self.bankrupt(from, to, events);
@@ -55,7 +56,7 @@ impl GameEngine {
             }
             let building_cash = self.deeds.liquidate_buildings(&self.board, pid);
             if building_cash > 0 {
-                self.change_cash(cred, building_cash as i64, events);
+                self.change_cash(cred, building_cash as i64, "破产变卖房屋", events);
             }
             self.deeds.transfer_player(pid, cred);
         } else {
@@ -113,13 +114,13 @@ impl GameEngine {
         events.push(Event::AuctionStarted { tile_id: tile });
     }
 
-    /// 支付 $50 保释。
+    /// 支付 $500K 保释（官方世界版量纲）。
     pub(crate) fn do_pay_bail(&mut self, pid: Uuid, events: &mut Vec<Event>) -> Result<(), String> {
         let in_jail = self.player(pid).map(|p| p.in_jail).unwrap_or(false);
         if !in_jail {
             return Err("你不在狱中".into());
         }
-        self.pay_to(pid, None, 50, events);
+        self.pay_to(pid, None, 500_000, "保释出狱", events);
         if !self.player(pid).map(|p| p.bankrupt).unwrap_or(true) {
             if let Some(p) = self.player_mut(pid) {
                 p.in_jail = false;
@@ -164,7 +165,7 @@ impl GameEngine {
         if self.player_cash(pid) < tile.price as i64 {
             return Err("资金不足，可先出售/抵押资产，或放弃购买触发拍卖".into());
         }
-        self.change_cash(pid, -(tile.price as i64), events);
+        self.change_cash(pid, -(tile.price as i64), "购地", events);
         self.deeds.assign(pos, pid);
         events.push(Event::PropertyBought {
             player_id: pid,
@@ -241,7 +242,7 @@ impl GameEngine {
         let tile = auction.tile_id;
         if let Some(winner) = auction.winner() {
             let amount = auction.highest_bid;
-            self.pay_to(winner, None, amount, events);
+            self.pay_to(winner, None, amount, "竞得拍卖", events);
             // 出价过高导致破产：竞得作废，地块留在市场，其资产进入后续拍卖。
             if self.player(winner).map(|p| p.bankrupt).unwrap_or(true) {
                 events.push(Event::AuctionEnded {
@@ -296,7 +297,8 @@ impl GameEngine {
             return Err("资金不足".into());
         }
         let cost = self.deeds.build(&self.board, tile_id)?;
-        self.change_cash(pid, -(cost as i64), events);
+        let name = self.board.tile(tile_id).name.clone();
+        self.change_cash(pid, -(cost as i64), &format!("盖房·{name}"), events);
         let houses = self.deeds.houses(tile_id);
         events.push(Event::BuildHouse {
             player_id: pid,
@@ -317,7 +319,8 @@ impl GameEngine {
             return Err("只能出售自己地块上的房屋".into());
         }
         let value = self.deeds.sell_house(&self.board, tile_id)?;
-        self.change_cash(pid, value as i64, events);
+        let name = self.board.tile(tile_id).name.clone();
+        self.change_cash(pid, value as i64, &format!("卖房·{name}"), events);
         let houses = self.deeds.houses(tile_id);
         events.push(Event::SoldHouse {
             player_id: pid,
@@ -338,7 +341,8 @@ impl GameEngine {
             return Err("只能抵押自己的地块".into());
         }
         let amount = self.deeds.mortgage(&self.board, tile_id)?;
-        self.change_cash(pid, amount as i64, events);
+        let name = self.board.tile(tile_id).name.clone();
+        self.change_cash(pid, amount as i64, &format!("抵押·{name}"), events);
         events.push(Event::Mortgaged {
             player_id: pid,
             tile_id,
@@ -361,7 +365,8 @@ impl GameEngine {
         if self.player_cash(pid) < cost as i64 {
             return Err("资金不足，无法赎回".into());
         }
-        self.change_cash(pid, -(cost as i64), events);
+        let name = self.board.tile(tile_id).name.clone();
+        self.change_cash(pid, -(cost as i64), &format!("赎回·{name}"), events);
         events.push(Event::Unmortgaged {
             player_id: pid,
             tile_id,
@@ -458,7 +463,7 @@ impl GameEngine {
 
         // 执行 offer：from → to
         if trade.offer.cash > 0 {
-            self.pay_to(trade.from, Some(trade.to), trade.offer.cash as u32, events);
+            self.pay_to(trade.from, Some(trade.to), trade.offer.cash as u32, "交易", events);
         }
         for &t in &trade.offer.tiles {
             self.deeds.assign(t, trade.to);
@@ -473,7 +478,7 @@ impl GameEngine {
         }
         // 执行 demand：to → from
         if trade.demand.cash > 0 {
-            self.pay_to(trade.to, Some(trade.from), trade.demand.cash as u32, events);
+            self.pay_to(trade.to, Some(trade.from), trade.demand.cash as u32, "交易", events);
         }
         for &t in &trade.demand.tiles {
             self.deeds.assign(t, trade.from);

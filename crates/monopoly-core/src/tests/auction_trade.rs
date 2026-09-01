@@ -48,7 +48,7 @@ fn auction_requires_turn_order_and_increasing_bids() {
     // 合法轮流出价。
     e.handle(
         a,
-        Command::AuctionBid { amount: 100 },
+        Command::AuctionBid { amount: 1_000_000 },
         &mut SeqRng::new(vec![0]),
     )
     .unwrap();
@@ -56,20 +56,20 @@ fn auction_requires_turn_order_and_increasing_bids() {
     assert!(e
         .handle(
             a,
-            Command::AuctionBid { amount: 200 },
+            Command::AuctionBid { amount: 2_000_000 },
             &mut SeqRng::new(vec![0])
         )
         .is_err());
 
     e.handle(
         b,
-        Command::AuctionBid { amount: 150 },
+        Command::AuctionBid { amount: 1_500_000 },
         &mut SeqRng::new(vec![0]),
     )
     .unwrap();
     e.handle(
         a,
-        Command::AuctionBid { amount: 200 },
+        Command::AuctionBid { amount: 2_000_000 },
         &mut SeqRng::new(vec![0]),
     )
     .unwrap();
@@ -77,7 +77,7 @@ fn auction_requires_turn_order_and_increasing_bids() {
     assert!(e
         .handle(
             b,
-            Command::AuctionBid { amount: 200 },
+            Command::AuctionBid { amount: 2_000_000 },
             &mut SeqRng::new(vec![0])
         )
         .is_err());
@@ -86,7 +86,7 @@ fn auction_requires_turn_order_and_increasing_bids() {
         .unwrap();
     // B 已弃权，再无其他人可出价 → 拍卖结束，A 获胜。
     assert_eq!(e.deeds.owner(3), Some(a));
-    assert_eq!(e.player_cash(a), 1500 - 200);
+    assert_eq!(e.player_cash(a), 15_000_000 - 2_000_000);
     assert_ne!(e.phase(), Phase::InAuction);
 }
 
@@ -107,7 +107,7 @@ fn auction_all_pass_leaves_tile_unowned() {
 
     assert_eq!(e.deeds.owner(3), None);
     assert_ne!(e.phase(), Phase::InAuction);
-    assert_eq!(e.player_cash(a), 1500);
+    assert_eq!(e.player_cash(a), 15_000_000);
 }
 
 fn extract_trade_id(evs: &[Event]) -> Uuid {
@@ -187,7 +187,7 @@ fn trade_rejected_when_cash_insufficient() {
     let (mut e, ids) = engine_with_players(2, None);
     let a = ids[0];
     let b = ids[1];
-    // B 现金只有 1500，要求 9999 现金 → 接受时拒绝。
+    // B 现金只有 15M，要求 20M 现金 → 接受时拒绝。
     let evs = e
         .handle(
             a,
@@ -195,7 +195,7 @@ fn trade_rejected_when_cash_insufficient() {
                 target: b,
                 offer: AssetList::default(),
                 demand: AssetList {
-                    cash: 9999,
+                    cash: 20_000_000,
                     tiles: vec![],
                     out_of_jail_cards: 0,
                 },
@@ -266,7 +266,7 @@ fn trade_out_of_jail_card_moves() {
                     out_of_jail_cards: 1,
                 },
                 demand: AssetList {
-                    cash: 50,
+                    cash: 500_000,
                     tiles: vec![],
                     out_of_jail_cards: 0,
                 },
@@ -284,8 +284,8 @@ fn trade_out_of_jail_card_moves() {
 
     assert_eq!(e.player(a).unwrap().out_of_jail_cards, 1);
     assert_eq!(e.player(b).unwrap().out_of_jail_cards, 1);
-    assert_eq!(e.player_cash(a), 1500 + 50);
-    assert_eq!(e.player_cash(b), 1500 - 50);
+    assert_eq!(e.player_cash(a), 15_000_000 + 500_000);
+    assert_eq!(e.player_cash(b), 15_000_000 - 500_000);
 }
 
 #[test]

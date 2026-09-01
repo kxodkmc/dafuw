@@ -1,0 +1,310 @@
+/* 棋盘：11x11 网格、地块旋转、中央面板、骰子、拍卖 */
+
+.board-wrap {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* 视图容器：滚轮缩放、拖拽平移的作用层；禁止选中文本保证拖拽手感 */
+.board-view {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.board-view:active { cursor: grabbing; }
+
+/* 固定像素棋盘，由 JS 按容器缩放 */
+.board {
+  position: relative;
+  width: 662px;
+  height: 662px;
+  flex: none;
+  display: grid;
+  grid-template-columns: 88px repeat(9, 54px) 88px;
+  grid-template-rows: 88px repeat(9, 54px) 88px;
+  background: var(--panel);
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+}
+
+/* 骰子覆盖层：悬浮在棋盘中央，不参与网格布局 */
+.dice-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  pointer-events: none;
+}
+.dice-layer.rolling .dice { animation: dice-shake 0.08s linear infinite; }
+@keyframes dice-shake {
+  0% { transform: rotate(-12deg) scale(1.08); }
+  50% { transform: rotate(10deg) scale(0.94); }
+  100% { transform: rotate(-12deg) scale(1.08); }
+}
+
+.tile {
+  position: relative;
+  background: #fff;
+  border: 1px solid var(--line);
+  overflow: hidden;
+  cursor: pointer;
+}
+.tile:hover { background: #fffbe9; }
+.tile.corner { display: flex; align-items: center; justify-content: center; }
+.tile.corner .tile-inner {
+  position: static;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 内层：所有文字保持水平可读，仅色条位置随方向变化 */
+.tile-inner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+.side-left .tile-inner { flex-direction: row-reverse; }
+.side-right .tile-inner { flex-direction: row; }
+
+.tile .bar { flex: none; width: 100%; height: 14px; border-bottom: 1px solid var(--line); }
+.side-left .bar { width: 14px; height: 100%; border-bottom: none; border-left: 1px solid var(--line); }
+.side-right .bar { width: 14px; height: 100%; border-bottom: none; border-right: 1px solid var(--line); }
+
+.tile-mid {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.tile .name {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 9.5px;
+  line-height: 1.15;
+  padding: 2px;
+  word-break: break-all;
+}
+.tile .price { flex: none; font-size: 9px; color: var(--ink-soft); text-align: center; padding-bottom: 2px; }
+
+.tile.corner .name { font-size: 11px; }
+.tile.corner .icon { font-size: 26px; line-height: 1.2; }
+.tile.kind-property .icon, .tile.kind-railroad .icon, .tile.kind-utility .icon {
+  font-size: 13px;
+  text-align: center;
+  padding-top: 1px;
+}
+
+.tile .houses {
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  font-size: 9px;
+  pointer-events: none;
+  text-shadow: 0 0 2px #fff;
+}
+.side-top .houses { top: auto; bottom: 1px; }
+
+.tile .owner-flag {
+  position: absolute;
+  right: 0; top: 0;
+  width: 5px; height: 100%;
+  opacity: 0.85;
+}
+.side-top .owner-flag { right: auto; left: 0; }
+
+.tile.mortgaged::after {
+  content: "抵";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  color: rgb(198 40 40 / 50%);
+  background: rgb(255 255 255 / 55%);
+  pointer-events: none;
+}
+
+/* 棋子层（不随地块旋转） */
+.tokens {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  align-content: center;
+  gap: 1px;
+  padding: 2px;
+  pointer-events: none;
+}
+.token {
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+}
+.token.active { animation: token-pulse 1s ease-in-out infinite; }
+@keyframes token-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(46 125 50 / 60%); }
+  50% { box-shadow: 0 0 0 5px rgb(46 125 50 / 0%); }
+}
+
+/* ---- 中央面板 ---- */
+
+.board-center {
+  grid-area: 2 / 2 / 11 / 11;
+  background: #dcead2;
+  border: 1px solid #b9cfa9;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  position: relative;
+  overflow: hidden;
+}
+.center-logo { font-size: 26px; font-weight: 800; letter-spacing: 0.3em; color: #4c6b3c; }
+.center-sub { color: #6b8158; font-size: 13px; }
+
+.dice-row { display: flex; gap: 8px; align-items: center; }
+.dice {
+  width: 52px; height: 52px;
+  background: #fff;
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 38px;
+  line-height: 1;
+}
+.doubles-badge { font-size: 13px; color: var(--danger); font-weight: 700; }
+
+.phase-line { font-size: 15px; font-weight: 600; color: #3c4a30; }
+.phase-turn { font-size: 13px; color: #6b8158; }
+
+/* 中央播报：最近一条系统事件，变化时入场动画 */
+.center-news {
+  max-width: 400px;
+  text-align: center;
+  font-size: 13px;
+  color: #3c4a30;
+  background: rgb(255 255 255 / 70%);
+  border: 1px solid #c6d8b6;
+  border-radius: 999px;
+  padding: 5px 14px;
+}
+.center-news.fresh { animation: news-in 0.35s ease-out; }
+@keyframes news-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+.center-banner {
+  padding: 8px 20px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid var(--line);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.game-over {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+.game-over .champ { font-size: 22px; font-weight: 800; color: var(--gold); }
+.game-over ol { text-align: left; color: var(--ink-soft); }
+
+/* ---- 特效层（body 级固定层，独立于棋盘重绘） ---- */
+
+.fx-root {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 950;
+}
+
+/* 地块飘字：金额变动肉眼可见（租金/薪水/缴税等） */
+.fx-float {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  font-weight: 700;
+  font-size: 15px;
+  padding: 3px 12px;
+  border-radius: 999px;
+  background: rgb(255 253 247 / 94%);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  white-space: nowrap;
+  animation: fx-float-up 1.8s ease-out forwards;
+}
+.fx-float.pos { color: var(--accent); }
+.fx-float.neg { color: var(--danger); }
+@keyframes fx-float-up {
+  0% { opacity: 0; translate: 0 10px; }
+  12% { opacity: 1; }
+  78% { opacity: 1; }
+  100% { opacity: 0; translate: 0 -38px; }
+}
+
+/* 抽卡横幅：中央翻牌 */
+.fx-card-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.fx-card {
+  width: min(340px, 80vw);
+  background: var(--panel);
+  border: 2px solid var(--gold);
+  border-radius: 14px;
+  box-shadow: 0 12px 48px rgb(0 0 0 / 32%);
+  padding: 20px 22px;
+  text-align: center;
+  animation: fx-card-flip 0.45s ease-out;
+}
+.fx-card-head {
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--gold);
+  letter-spacing: 0.25em;
+  margin-bottom: 10px;
+}
+.fx-card-text { font-size: 15px; line-height: 1.65; }
+.fx-card-overlay.out { animation: fx-card-out 0.32s ease-in forwards; }
+@keyframes fx-card-flip {
+  from { transform: rotateY(88deg) scale(0.85); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes fx-card-out {
+  to { opacity: 0; transform: translateY(-16px); }
+}

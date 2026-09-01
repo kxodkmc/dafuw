@@ -40,7 +40,7 @@ pub struct RoomSettings {
     pub initial_money: u32,
     /// 骰子数量（默认 2）。
     pub dice_count: u8,
-    /// 棋盘格数（当前版本仅支持经典 40 格，接口为后续自定义地图预留）。
+    /// 棋盘格数（当前版本仅支持 40 格世界版棋盘，接口为后续自定义地图预留）。
     pub board_size: u16,
     /// 经过/停留 GO 领取的薪水。
     pub go_salary: u32,
@@ -53,10 +53,11 @@ impl Default for RoomSettings {
         Self {
             name: String::new(),
             player_count_max: 8,
-            initial_money: 1500,
+            // 官方世界版量纲：初始 15M、起薪 2M。
+            initial_money: 15_000_000,
             dice_count: 2,
             board_size: 40,
-            go_salary: 200,
+            go_salary: 2_000_000,
             max_rounds: None,
         }
     }
@@ -81,7 +82,7 @@ impl RoomSettings {
             return Err("GO 薪水不能为 0".to_string());
         }
         if self.board_size != 40 {
-            return Err("当前版本仅支持经典 40 格棋盘，自定义地图将在后续版本开放".to_string());
+            return Err("当前版本仅支持 40 格棋盘，自定义地图将在后续版本开放".to_string());
         }
         Ok(())
     }
@@ -130,7 +131,7 @@ mod tests {
         // 缺省字段自动取默认值。
         let s: RoomSettings = serde_json::from_str(r#"{"player_count_max":4}"#).unwrap();
         assert_eq!(s.player_count_max, 4);
-        assert_eq!(s.initial_money, 1500);
+        assert_eq!(s.initial_money, 15_000_000);
         assert_eq!(s.dice_count, 2);
         assert_eq!(s.board_size, 40);
 
@@ -168,7 +169,7 @@ mod tests {
 
         s.go_salary = 0;
         assert!(s.validate().is_err());
-        s.go_salary = 200;
+        s.go_salary = 2_000_000;
         assert!(s.validate().is_ok());
 
         s.board_size = 80;

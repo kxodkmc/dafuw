@@ -41,9 +41,9 @@ pub struct Tile {
     pub hotel_rent: u32,
     pub building_cost: u32,
     pub mortgage_value: u32,
-    /// 税额（所得税/奢侈品税），0 表示该格非税格。
+    /// 税额（所得税/超级税），0 表示该格非税格。
     pub tax: u32,
-    /// 是否为所得税（$200 或总资产 10% 取较高者）。
+    /// 是否为所得税（$2M 或总资产 10% 取较高者）。
     pub income_tax: bool,
 }
 
@@ -95,17 +95,21 @@ impl Board {
     }
 }
 
-/// 构建棋盘。当前版本仅支持经典 40 格；自定义尺寸在后续版本通过此入口扩展。
+/// 构建棋盘。当前版本仅支持 40 格（经典布局世界版）。
 pub fn build_board(size: usize) -> Result<Board, String> {
     if size == 40 {
-        Ok(classic_board())
+        Ok(world_board())
     } else {
-        Err(format!("暂不支持 {size} 格棋盘，当前仅支持经典 40 格"))
+        Err(format!("暂不支持 {size} 格棋盘，当前仅支持 40 格棋盘"))
     }
 }
 
-/// 经典 40 格棋盘（位置、价格、租金参考标准大富翁）。
-pub fn classic_board() -> Board {
+/// 完全复刻官方 MONOPOLY Here & Now: The World Edition（2008，560 万全球投票）：
+/// 22 座世界城市 + 大富翁铁路/航空/邮轮/航天 + 太阳能/风能电站。
+/// 布局与经典 40 格完全一致；全部金额 = 经典版 ×10000（起薪 2M、初始 15M、地价 600K~4M）。
+pub fn world_board() -> Board {
+    const K: u32 = 10_000; // 经典版金额 → 官方世界版金额的倍率
+
     #[allow(clippy::too_many_arguments)]
     fn prop(
         id: usize,
@@ -156,12 +160,12 @@ pub fn classic_board() -> Board {
             name: name.to_string(),
             kind: TileKind::Railroad,
             group: None,
-            price: 200,
-            base_rent: 25,
+            price: 200 * K,
+            base_rent: 0,
             rent_with_house: [0; 4],
             hotel_rent: 0,
             building_cost: 0,
-            mortgage_value: 100,
+            mortgage_value: 100 * K,
             tax: 0,
             income_tax: false,
         }
@@ -173,257 +177,16 @@ pub fn classic_board() -> Board {
             name: name.to_string(),
             kind: TileKind::Utility,
             group: None,
-            price: 150,
+            price: 150 * K,
             base_rent: 0,
             rent_with_house: [0; 4],
             hotel_rent: 0,
             building_cost: 0,
-            mortgage_value: 75,
+            mortgage_value: 75 * K,
             tax: 0,
             income_tax: false,
         }
     }
-
-    let mut tiles = vec![
-        simple(0, "起点 GO", TileKind::Go),
-        prop(
-            1,
-            "地中海大道",
-            Group::Brown,
-            60,
-            2,
-            [10, 30, 90, 160],
-            250,
-            50,
-        ),
-        simple(2, "命运", TileKind::Fate),
-        prop(
-            3,
-            "波罗的海大道",
-            Group::Brown,
-            60,
-            4,
-            [20, 60, 180, 320],
-            450,
-            50,
-        ),
-        tax(4, "所得税", 200, true),
-        railroad(5, "国王十字车站"),
-        prop(
-            6,
-            "东方大道",
-            Group::LightBlue,
-            100,
-            6,
-            [30, 90, 270, 400],
-            550,
-            50,
-        ),
-        simple(7, "机会", TileKind::Chance),
-        prop(
-            8,
-            "佛蒙特大道",
-            Group::LightBlue,
-            100,
-            6,
-            [30, 90, 270, 400],
-            550,
-            50,
-        ),
-        prop(
-            9,
-            "康涅狄格大道",
-            Group::LightBlue,
-            120,
-            8,
-            [40, 100, 300, 450],
-            600,
-            50,
-        ),
-        simple(10, "监狱 / 探访", TileKind::Jail),
-        prop(
-            11,
-            "圣查尔斯大道",
-            Group::Pink,
-            140,
-            10,
-            [50, 150, 450, 625],
-            750,
-            100,
-        ),
-        utility(12, "电力公司"),
-        prop(
-            13,
-            "弗吉尼亚大道",
-            Group::Pink,
-            140,
-            10,
-            [50, 150, 450, 625],
-            750,
-            100,
-        ),
-        prop(
-            14,
-            "圣詹姆斯大道",
-            Group::Pink,
-            160,
-            12,
-            [60, 180, 500, 700],
-            900,
-            100,
-        ),
-        railroad(15, "宾夕法尼亚车站"),
-        prop(
-            16,
-            "田纳西大道",
-            Group::Orange,
-            180,
-            14,
-            [70, 200, 550, 750],
-            950,
-            100,
-        ),
-        simple(17, "命运", TileKind::Fate),
-        prop(
-            18,
-            "纽约大道",
-            Group::Orange,
-            180,
-            14,
-            [70, 200, 550, 750],
-            950,
-            100,
-        ),
-        prop(
-            19,
-            "肯塔基大道",
-            Group::Orange,
-            200,
-            16,
-            [80, 220, 600, 800],
-            1000,
-            100,
-        ),
-        simple(20, "免费停车", TileKind::FreeParking),
-        prop(
-            21,
-            "印第安纳大道",
-            Group::Red,
-            220,
-            18,
-            [90, 250, 700, 875],
-            1050,
-            150,
-        ),
-        simple(22, "机会", TileKind::Chance),
-        prop(
-            23,
-            "伊利诺伊大道",
-            Group::Red,
-            240,
-            20,
-            [100, 300, 750, 925],
-            1100,
-            150,
-        ),
-        prop(
-            24,
-            "大西洋大道",
-            Group::Red,
-            260,
-            22,
-            [110, 330, 800, 975],
-            1150,
-            150,
-        ),
-        railroad(25, "B&O 车站"),
-        prop(
-            26,
-            "文特诺大道",
-            Group::Yellow,
-            260,
-            22,
-            [110, 330, 800, 975],
-            1150,
-            150,
-        ),
-        prop(
-            27,
-            "马尔文花园大道",
-            Group::Yellow,
-            260,
-            22,
-            [110, 330, 800, 975],
-            1150,
-            150,
-        ),
-        utility(28, "水厂"),
-        prop(
-            29,
-            "太平洋大道",
-            Group::Yellow,
-            280,
-            24,
-            [120, 360, 850, 1025],
-            1200,
-            150,
-        ),
-        simple(30, "入狱", TileKind::GoToJail),
-        prop(
-            31,
-            "北卡罗来纳大道",
-            Group::Green,
-            300,
-            26,
-            [130, 390, 900, 1100],
-            1275,
-            200,
-        ),
-        prop(
-            32,
-            "宾夕法尼亚大道",
-            Group::Green,
-            300,
-            26,
-            [130, 390, 900, 1100],
-            1275,
-            200,
-        ),
-        simple(33, "命运", TileKind::Fate),
-        prop(
-            34,
-            "太平洋大道",
-            Group::Green,
-            320,
-            28,
-            [150, 450, 1000, 1200],
-            1400,
-            200,
-        ),
-        railroad(35, "短线车站"),
-        simple(36, "机会", TileKind::Chance),
-        prop(
-            37,
-            "公园大道",
-            Group::DarkBlue,
-            350,
-            35,
-            [175, 500, 1100, 1300],
-            1500,
-            200,
-        ),
-        tax(38, "奢侈品税", 100, false),
-        prop(
-            39,
-            "五月花大道",
-            Group::DarkBlue,
-            400,
-            50,
-            [200, 600, 1400, 1700],
-            2000,
-            200,
-        ),
-    ];
 
     fn tax(id: usize, name: &str, amount: u32, income: bool) -> Tile {
         Tile {
@@ -442,7 +205,59 @@ pub fn classic_board() -> Board {
         }
     }
 
-    // 修正 id 与下标一致（上面 `tax` 借用顺序问题，此处重新赋值）。
+    // 22 城按官方投票排名升序（位置与经典版地块一一对应，租金同步 ×10000）。
+    let mut tiles = vec![
+        simple(0, "起点 GO", TileKind::Go),
+        // 棕组：外卡城市（最便宜）
+        prop(1, "格丁尼亚", Group::Brown, 60 * K, 2 * K, [10 * K, 30 * K, 90 * K, 160 * K], 250 * K, 50 * K),
+        simple(2, "命运", TileKind::Fate),
+        prop(3, "台北", Group::Brown, 60 * K, 4 * K, [20 * K, 60 * K, 180 * K, 320 * K], 450 * K, 50 * K),
+        tax(4, "所得税", 200 * K, true),
+        railroad(5, "大富翁铁路"),
+        // 浅蓝组
+        prop(6, "东京", Group::LightBlue, 100 * K, 6 * K, [30 * K, 90 * K, 270 * K, 400 * K], 550 * K, 50 * K),
+        simple(7, "机会", TileKind::Chance),
+        prop(8, "巴塞罗那", Group::LightBlue, 100 * K, 6 * K, [30 * K, 90 * K, 270 * K, 400 * K], 550 * K, 50 * K),
+        prop(9, "雅典", Group::LightBlue, 120 * K, 8 * K, [40 * K, 100 * K, 300 * K, 450 * K], 600 * K, 50 * K),
+        simple(10, "监狱 / 探访", TileKind::Jail),
+        // 粉红组
+        prop(11, "伊斯坦布尔", Group::Pink, 140 * K, 10 * K, [50 * K, 150 * K, 450 * K, 625 * K], 750 * K, 100 * K),
+        utility(12, "太阳能电站"),
+        prop(13, "基辅", Group::Pink, 140 * K, 10 * K, [50 * K, 150 * K, 450 * K, 625 * K], 750 * K, 100 * K),
+        prop(14, "多伦多", Group::Pink, 160 * K, 12 * K, [60 * K, 180 * K, 500 * K, 700 * K], 900 * K, 100 * K),
+        railroad(15, "大富翁航空"),
+        // 橙色组
+        prop(16, "罗马", Group::Orange, 180 * K, 14 * K, [70 * K, 200 * K, 550 * K, 750 * K], 950 * K, 100 * K),
+        simple(17, "命运", TileKind::Fate),
+        prop(18, "上海", Group::Orange, 180 * K, 14 * K, [70 * K, 200 * K, 550 * K, 750 * K], 950 * K, 100 * K),
+        prop(19, "温哥华", Group::Orange, 200 * K, 16 * K, [80 * K, 220 * K, 600 * K, 800 * K], 1000 * K, 100 * K),
+        simple(20, "免费停车", TileKind::FreeParking),
+        // 红色组
+        prop(21, "悉尼", Group::Red, 220 * K, 18 * K, [90 * K, 250 * K, 700 * K, 875 * K], 1050 * K, 150 * K),
+        simple(22, "机会", TileKind::Chance),
+        prop(23, "纽约", Group::Red, 240 * K, 20 * K, [100 * K, 300 * K, 750 * K, 925 * K], 1100 * K, 150 * K),
+        prop(24, "伦敦", Group::Red, 260 * K, 22 * K, [110 * K, 330 * K, 800 * K, 975 * K], 1150 * K, 150 * K),
+        railroad(25, "大富翁邮轮"),
+        // 黄色组
+        prop(26, "北京", Group::Yellow, 260 * K, 22 * K, [110 * K, 330 * K, 800 * K, 975 * K], 1150 * K, 150 * K),
+        prop(27, "香港", Group::Yellow, 260 * K, 22 * K, [110 * K, 330 * K, 800 * K, 975 * K], 1150 * K, 150 * K),
+        utility(28, "风能电站"),
+        prop(29, "耶路撒冷", Group::Yellow, 280 * K, 24 * K, [120 * K, 360 * K, 850 * K, 1025 * K], 1200 * K, 150 * K),
+        simple(30, "入狱", TileKind::GoToJail),
+        // 绿色组
+        prop(31, "巴黎", Group::Green, 300 * K, 26 * K, [130 * K, 390 * K, 900 * K, 1100 * K], 1275 * K, 200 * K),
+        prop(32, "贝尔格莱德", Group::Green, 300 * K, 26 * K, [130 * K, 390 * K, 900 * K, 1100 * K], 1275 * K, 200 * K),
+        simple(33, "命运", TileKind::Fate),
+        prop(34, "开普敦", Group::Green, 320 * K, 28 * K, [150 * K, 450 * K, 1000 * K, 1200 * K], 1400 * K, 200 * K),
+        railroad(35, "大富翁航天"),
+        simple(36, "机会", TileKind::Chance),
+        // 深蓝组：里加（亚军）、蒙特利尔（全球投票冠军 → 最贵）
+        prop(37, "里加", Group::DarkBlue, 350 * K, 35 * K, [175 * K, 500 * K, 1100 * K, 1300 * K], 1500 * K, 200 * K),
+        tax(38, "超级税", 100 * K, false),
+        prop(39, "蒙特利尔", Group::DarkBlue, 400 * K, 50 * K, [200 * K, 600 * K, 1400 * K, 1700 * K], 2000 * K, 200 * K),
+    ];
+
+    // 修正 id 与下标一致。
     for (i, t) in tiles.iter_mut().enumerate() {
         t.id = i;
     }

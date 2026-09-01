@@ -35,10 +35,16 @@ pub async fn ws_handler(
     let session = handle
         .resolve_token(&q.token)
         .ok_or_else(|| ApiError::forbidden("无效的会话令牌"))?;
-    Ok(ws.on_upgrade(move |socket| handle_socket(socket, handle, session)))
+    tracing::info!("房间 {code} 会话接入：{session:?}");
+    Ok(ws.on_upgrade(move |socket| handle_socket(socket, handle, session, code)))
 }
 
-async fn handle_socket(socket: WebSocket, handle: Arc<RoomHandle>, session: Session) {
+async fn handle_socket(
+    socket: WebSocket,
+    handle: Arc<RoomHandle>,
+    session: Session,
+    code: RoomCode,
+) {
     let (mut sink, mut stream) = socket.split();
     let mut rx = handle.broadcast.subscribe();
 
@@ -59,12 +65,23 @@ async fn handle_socket(socket: WebSocket, handle: Arc<RoomHandle>, session: Sess
     }
 
     // 写端：广播 → 客户端。
+    // 注意：Lagged（消费落后）只跳过这一批，绝不能退出循环，否则写端静默死亡。
+    let room_code = handle.code;
     let writer = tokio::spawn(async move {
-        while let Ok(ev) = rx.recv().await {
-            if let Ok(text) = serde_json::to_string(&ev) {
-                if sink.send(Message::Text(text.into())).await.is_err() {
-                    break;
+        loop {
+            match rx.recv().await {
+                Ok(ev) => {
+                    if let Ok(text) = serde_json::to_string(&ev) {
+                        if sink.send(Message::Text(text.into())).await.is_err() {
+                            break;
+                        }
+                    }
                 }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    tracing::warn!("房间 {room_code} 有会话落后 {n} 条事件，已跳过");
+                    continue;
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
         }
     });
@@ -80,4 +97,5 @@ async fn handle_socket(socket: WebSocket, handle: Arc<RoomHandle>, session: Sess
 
     let _ = handle.sender.send(ActorMsg::Disconnected { session }).await;
     writer.abort();
+    tracing::info!("房间 {code} 会话断开");
 }

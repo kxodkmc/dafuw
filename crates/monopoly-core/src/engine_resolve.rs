@@ -71,7 +71,7 @@ impl GameEngine {
         });
         if to < from {
             let salary = self.settings.go_salary;
-            self.change_cash(pid, salary as i64, events);
+            self.change_cash(pid, salary as i64, "经过起点薪水", events);
             events.push(Event::PassedGo {
                 player_id: pid,
                 salary,
@@ -123,7 +123,7 @@ impl GameEngine {
             });
             if to < from {
                 let salary = self.settings.go_salary;
-                self.change_cash(pid, salary as i64, events);
+                self.change_cash(pid, salary as i64, "经过起点薪水", events);
                 events.push(Event::PassedGo {
                     player_id: pid,
                     salary,
@@ -146,9 +146,9 @@ impl GameEngine {
             }
             if turns >= 3 {
                 events.push(Event::Message {
-                    text: "已在狱中 3 回合，强制支付 $50 出狱".into(),
+                    text: "已在狱中 3 回合，强制支付 $500K 出狱".into(),
                 });
-                self.pay_to(pid, None, 50, events);
+                self.pay_to(pid, None, 500_000, "强制出狱罚款", events);
                 if !self.player(pid).map(|p| p.bankrupt).unwrap_or(true) {
                     if let Some(p) = self.player_mut(pid) {
                         p.in_jail = false;
@@ -188,7 +188,8 @@ impl GameEngine {
                 } else {
                     tile.tax
                 };
-                self.pay_to(pid, None, amount, events);
+                let name = self.board.tile(pos).name.clone();
+                self.pay_to(pid, None, amount, &format!("缴税·{name}"), events);
                 events.push(Event::TaxPaid {
                     player_id: pid,
                     amount,
@@ -232,7 +233,8 @@ impl GameEngine {
                         }
                         let rent = self.deeds.rent(&self.board, pos, dice_sum);
                         if rent > 0 {
-                            self.pay_to(pid, Some(o), rent, events);
+                            let name = self.board.tile(pos).name.clone();
+                            self.pay_to(pid, Some(o), rent, &format!("租金·{name}"), events);
                             events.push(Event::RentPaid {
                                 from: pid,
                                 to: o,
@@ -253,7 +255,8 @@ impl GameEngine {
             if o != pid && !self.deeds.is_mortgaged(tile) {
                 let rent = self.deeds.rent(&self.board, tile, dice_sum);
                 if rent > 0 {
-                    self.pay_to(pid, Some(o), rent, events);
+                    let name = self.board.tile(tile).name.clone();
+                    self.pay_to(pid, Some(o), rent, &format!("租金·{name}"), events);
                     events.push(Event::RentPaid {
                         from: pid,
                         to: o,
@@ -274,10 +277,10 @@ impl GameEngine {
     ) -> Result<(), String> {
         match card.effect {
             CardEffect::Collect(amt) => {
-                self.change_cash(pid, amt as i64, events);
+                self.change_cash(pid, amt as i64, "卡牌收入", events);
             }
             CardEffect::Pay(amt) => {
-                self.pay_to(pid, None, amt, events);
+                self.pay_to(pid, None, amt, "卡牌支出", events);
             }
             CardEffect::CollectFromEach(amt) => {
                 let others: Vec<Uuid> = self
@@ -286,7 +289,7 @@ impl GameEngine {
                     .filter(|&o| o != pid)
                     .collect();
                 for o in others {
-                    self.pay_to(o, Some(pid), amt, events);
+                    self.pay_to(o, Some(pid), amt, "卡牌收入", events);
                 }
             }
             CardEffect::PayEach(amt) => {
@@ -296,7 +299,7 @@ impl GameEngine {
                     .filter(|&o| o != pid)
                     .collect();
                 for o in others {
-                    self.pay_to(pid, Some(o), amt, events);
+                    self.pay_to(pid, Some(o), amt, "卡牌支出", events);
                 }
             }
             CardEffect::MoveTo(pos) => {
@@ -323,7 +326,7 @@ impl GameEngine {
                 let houses = self.deeds.total_houses(pid);
                 let hotels = self.deeds.total_hotels(pid);
                 let amt = houses * per_house + hotels * per_hotel;
-                self.pay_to(pid, None, amt, events);
+                self.pay_to(pid, None, amt, "房屋维修", events);
             }
             CardEffect::NearestRailroad => {
                 let pos = self.player_position(pid);
@@ -357,7 +360,7 @@ impl GameEngine {
         });
         if to < from {
             let salary = self.settings.go_salary;
-            self.change_cash(pid, salary as i64, events);
+            self.change_cash(pid, salary as i64, "经过起点薪水", events);
             events.push(Event::PassedGo {
                 player_id: pid,
                 salary,

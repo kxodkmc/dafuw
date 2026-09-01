@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use monopoly_common::avatar::{Avatar, Color};
 use monopoly_common::command::Command;
-use monopoly_common::event::Event;
+use monopoly_common::event::{ChatPayload, Event};
 use monopoly_common::room::RoomCode;
 use monopoly_common::snapshot::GameStateDto;
 use monopoly_core::engine::{GameEngine, Phase};
@@ -26,11 +26,20 @@ pub enum Session {
     Owner,
 }
 
+/// 全局玩家身份：跨房间、跨天不变的唯一凭证（uid 公开 + secret 保密）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PlayerIdentity {
+    pub player_uid: Uuid,
+    pub secret: Uuid,
+}
+
 /// 入座结果：玩家 ID、令牌与系统分配的昵称/形象/颜色。
 #[derive(Debug)]
 pub struct JoinResult {
     pub player_id: Uuid,
     pub token: String,
+    /// 本请求生效的 secret（回传给客户端保存）。
+    pub secret: Uuid,
     pub name: String,
     pub avatar: Avatar,
     pub color: Color,
@@ -43,6 +52,7 @@ pub enum ActorMsg {
         cmd: Command,
     },
     Join {
+        identity: PlayerIdentity,
         reply: oneshot::Sender<Result<JoinResult, String>>,
     },
     Start {
@@ -109,11 +119,15 @@ impl RoomActor {
         while let Some(msg) = rx.recv().await {
             match msg {
                 ActorMsg::Command { session, cmd } => {
+                    // 聊天不改变游戏状态，无需落盘。
+                    let is_chat = matches!(cmd, Command::Chat { .. });
                     self.command(session, cmd);
-                    self.persist().await;
+                    if !is_chat {
+                        self.persist().await;
+                    }
                 }
-                ActorMsg::Join { reply } => {
-                    let _ = reply.send(self.join());
+                ActorMsg::Join { identity, reply } => {
+                    let _ = reply.send(self.join(identity));
                     self.persist().await;
                 }
                 ActorMsg::Start { reply } => {
@@ -134,6 +148,7 @@ impl RoomActor {
                     self.auto_drive();
                 }
                 ActorMsg::Shutdown => {
+                    tracing::info!("房间 {} 解散，删除存档", self.code);
                     self.delete_record().await;
                     break;
                 }
@@ -279,27 +294,52 @@ impl RoomActor {
 
     // ---------- 生命周期 ----------
 
-    /// 玩家入座：系统随机预设昵称/形象/颜色，签发玩家令牌并返回分配结果。
-    fn join(&mut self) -> Result<JoinResult, String> {
-        let id = Uuid::new_v4();
-        let name = self.pick_preset_name();
-        let (avatar, color) = self.pick_preset_combo();
-        self.engine.add_player(id, name.clone(), avatar, color)?;
+    /// 玩家入座：
+    /// - 携带的全局 uid 已有座位（重进/跨天/换设备）→ 认领原座位，昵称/形象/资产原样保留；
+    /// - 新 uid → 系统随机预设昵称/形象/颜色，签发座位。
+    fn join(&mut self, identity: PlayerIdentity) -> Result<JoinResult, String> {
+        let uid = identity.player_uid;
         let token = Uuid::new_v4().to_string();
         self.player_tokens
             .write()
             .unwrap_or_else(|e| e.into_inner())
-            .insert(token.clone(), id);
+            .insert(token.clone(), uid);
+
+        // 认领已有座位：不广播 PlayerJoined，仅补发快照（其它客户端状态不变）。
+        if let Some(seat) = self.engine.player(uid) {
+            tracing::info!("房间 {} 玩家「{}」认领原座位回场", self.code, seat.name);
+            let result = JoinResult {
+                player_id: uid,
+                token,
+                secret: identity.secret,
+                name: seat.name.clone(),
+                avatar: seat.avatar,
+                color: seat.color,
+            };
+            let _ = self.tx.send(Event::RoomSnapshot(self.engine.snapshot()));
+            return Ok(result);
+        }
+
+        let name = self.pick_preset_name();
+        let (avatar, color) = self.pick_preset_combo();
+        self.engine.add_player(uid, name.clone(), avatar, color)?;
+        tracing::info!(
+            "房间 {} 玩家「{name}」入座（{}/{} 人）",
+            self.code,
+            self.engine.players.len(),
+            self.engine.settings.player_count_max,
+        );
         self.broadcast(vec![
             Event::PlayerJoined {
-                player_id: id,
+                player_id: uid,
                 name: name.clone(),
             },
             Event::RoomSnapshot(self.engine.snapshot()),
         ]);
         Ok(JoinResult {
-            player_id: id,
+            player_id: uid,
             token,
+            secret: identity.secret,
             name,
             avatar,
             color,
@@ -352,12 +392,22 @@ impl RoomActor {
 
     fn start_game(&mut self) -> Result<(), String> {
         let events = self.engine.start(&mut self.rng)?;
+        tracing::info!("房间 {} 开局，先手轮到托管推进", self.code);
         self.broadcast_events_and_snapshot(&events);
         self.auto_drive();
         Ok(())
     }
 
     fn command(&mut self, session: Session, cmd: Command) {
+        // 聊天在房间层处理：校验内容后以发送者名义广播，不进引擎。
+        if let Command::Chat { text } = cmd {
+            return match session {
+                Session::Player(pid) => self.handle_chat(pid, text),
+                Session::Owner => {
+                    self.send_error("房主身份没有玩家席位，无法发言".to_string());
+                }
+            };
+        }
         match session {
             Session::Owner => match cmd {
                 Command::StartGame => {
@@ -381,6 +431,23 @@ impl RoomActor {
     }
 
     // ---------- 广播 ----------
+
+    /// 处理玩家聊天：trim + 长度限制后广播（附上发送者昵称）。
+    fn handle_chat(&mut self, pid: Uuid, text: String) {
+        let text = text.trim().to_string();
+        if text.is_empty() {
+            return;
+        }
+        let Some(player) = self.engine.player(pid) else {
+            return;
+        };
+        let text = text.chars().take(200).collect::<String>();
+        let _ = self.tx.send(Event::Chat(ChatPayload {
+            player_id: Some(pid),
+            name: player.name.clone(),
+            text,
+        }));
+    }
 
     /// 广播事件流，并始终附上一份最新快照，保证客户端状态一致。
     fn broadcast_events_and_snapshot(&self, events: &[Event]) {
@@ -432,11 +499,19 @@ mod tests {
         (actor, tx)
     }
 
+    /// 测试用全局身份：n 不同即身份不同。
+    fn ident(n: u128) -> PlayerIdentity {
+        PlayerIdentity {
+            player_uid: Uuid::from_u128(n),
+            secret: Uuid::from_u128(n + 10_000),
+        }
+    }
+
     #[test]
     fn all_disconnected_game_pauses_without_crash() {
         let (mut actor, _tx) = seeded_actor(None);
-        let a = actor.join().unwrap().player_id;
-        let b = actor.join().unwrap().player_id;
+        let a = actor.join(ident(1)).unwrap().player_id;
+        let b = actor.join(ident(2)).unwrap().player_id;
         actor.command(Session::Player(a), Command::SetReady { ready: true });
         actor.command(Session::Player(b), Command::SetReady { ready: true });
         assert!(actor.is_bot(a));
@@ -450,8 +525,8 @@ mod tests {
     #[test]
     fn bot_turns_autopiloted_and_reconnect_resumes() {
         let (mut actor, _tx) = seeded_actor(None);
-        let a = actor.join().unwrap().player_id;
-        let b = actor.join().unwrap().player_id;
+        let a = actor.join(ident(1)).unwrap().player_id;
+        let b = actor.join(ident(2)).unwrap().player_id;
         actor.command(Session::Player(a), Command::SetReady { ready: true });
         actor.command(Session::Player(b), Command::SetReady { ready: true });
         actor.on_connected(Session::Player(a));
@@ -476,8 +551,8 @@ mod tests {
     #[test]
     fn join_returns_unique_random_presets() {
         let (mut actor, _tx) = seeded_actor(None);
-        let r1 = actor.join().unwrap();
-        let r2 = actor.join().unwrap();
+        let r1 = actor.join(ident(1)).unwrap();
+        let r2 = actor.join(ident(2)).unwrap();
         assert_ne!(r1.name, r2.name, "预设昵称应互不重复");
         assert_ne!(
             (r1.avatar, r1.color),
@@ -487,9 +562,28 @@ mod tests {
     }
 
     #[test]
+    fn same_identity_claims_original_seat() {
+        let (mut actor, _tx) = seeded_actor(None);
+        let first = actor.join(ident(1)).unwrap();
+        actor.command(
+            Session::Player(first.player_id),
+            Command::UpdateProfile {
+                name: Some("小明".to_string()),
+                avatar: None,
+                color: None,
+            },
+        );
+        // 同一身份再次加入（模拟隔天/重进）：认领原座位，资料保留，不新增玩家。
+        let again = actor.join(ident(1)).unwrap();
+        assert_eq!(again.player_id, first.player_id);
+        assert_eq!(again.name, "小明");
+        assert_eq!(actor.engine.players.len(), 1);
+    }
+
+    #[test]
     fn update_profile_via_command_applies_and_rejects_bad() {
         let (mut actor, _tx) = seeded_actor(None);
-        let a = actor.join().unwrap().player_id;
+        let a = actor.join(ident(1)).unwrap().player_id;
 
         actor.command(
             Session::Player(a),
